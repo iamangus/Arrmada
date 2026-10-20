@@ -168,3 +168,59 @@ func TestPostgresApplicationProcessStartsAndStops(t *testing.T) {
 		t.Fatal("real PostgreSQL application touched the old SQLite database")
 	}
 }
+
+func TestPostgresConversionCLIAuthenticatesAfterRoundTrip(t *testing.T) {
+	binary := os.Getenv("ARRMADA_TEST_BINARY")
+	if binary == "" {
+		t.Skip("set ARRMADA_TEST_BINARY to exercise real conversion CLI")
+	}
+	dir := t.TempDir()
+	s, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accounts := auth.NewService(s.DB())
+	ctx := context.Background()
+	if _, err := accounts.CreateUser(ctx, "conversion-cli-user", "conversion-test-password", auth.RoleAdmin, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, _, opt, _ := store.PostgresFixture(t)
+	run := func(from, to, file string) {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, binary, "convert-database", "--from", from, "--to", to, "--sqlite-file", file)
+		for _, item := range os.Environ() {
+			key, _, _ := strings.Cut(item, "=")
+			if !strings.HasPrefix(key, "ARRMADA_") && !strings.HasPrefix(key, "PG") {
+				cmd.Env = append(cmd.Env, item)
+			}
+		}
+		cmd.Env = append(cmd.Env, "ARRMADA_DATA_DIR="+t.TempDir(), "ARRMADA_DATABASE_BACKEND=sqlite", "ARRMADA_POSTGRES_URL="+opt.URL, "ARRMADA_POSTGRES_SCHEMA="+opt.Schema)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("real conversion CLI %s to %s: %v %s", from, to, err, out)
+		}
+	}
+	run("sqlite", "postgres", filepath.Join(dir, "arrmada.db"))
+	pg, err := store.OpenPostgresNoMigrate(ctx, t.TempDir(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := auth.NewService(pg.DB()).Authenticate(ctx, "conversion-cli-user", "conversion-test-password"); err != nil {
+		t.Fatal("converted PostgreSQL credentials failed authentication")
+	}
+	if err := pg.Close(); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "arrmada.db")
+	run("postgres", "sqlite", target)
+	back, err := store.OpenNoMigrate(filepath.Dir(target))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer back.Close()
+	if _, err := auth.NewService(back.DB()).Authenticate(ctx, "conversion-cli-user", "conversion-test-password"); err != nil {
+		t.Fatal("round-trip SQLite credentials failed authentication")
+	}
+}

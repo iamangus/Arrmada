@@ -40,3 +40,12 @@ queue's explicitly assigned ids and backfills existing rows. This prevents a
 restart after pruning from reusing an id, matching SQLite AUTOINCREMENT's safety
 property. As with native PostgreSQL identities, a rolled-back insert can leave a
 sequence gap; it must never move the high-water mark backwards.
+
+Offline conversion has a separately reviewed pair in `../conversion.go`:
+SQLite `0347_quality_multi_counts_language` ↔ PostgreSQL
+`0004_subtitle_job_ids`. New migrations must review/update that pair and its
+typed round-trip tests explicitly; histories/checksums are never copied between
+engines. Unsupported histories fail closed rather than inferring compatibility
+from matching column names. Keep `TestPostgresBidirectionalOfflineConversion`,
+failure cleanup, crashed-WAL, source-value and real CLI authentication tests in
+the PostgreSQL 16–18 matrix when updating this contract.

@@ -5,10 +5,9 @@ instance**, not a multi-replica mode. Supported servers are PostgreSQL **16, 17
 and 18**, in an existing **UTF8** database. Arrmada uses a dedicated schema; it
 never creates a database, installs extensions, or administers unrelated schemas.
 
-This branch is still under development: runtime selection, native backups and
-offline PostgreSQL recovery are implemented; **SQLite ↔ PostgreSQL conversion
-is not yet implemented**. Do not switch an existing installation's backend
-expecting its data to be copied. Keep its original SQLite database intact.
+Backend selection never copies data automatically. Use the explicit offline
+conversion below to move an existing installation; keep the original database
+and filesystem data intact until the converted installation has been checked.
 
 ## Provisioning and privileges
 
@@ -161,6 +160,70 @@ and destination schema names can differ. Connections lost during COMMIT have
 the normal remote-transaction ambiguity: inspect the destination before retrying.
 An occupied destination must never be cleared automatically. No recovery uses
 `DROP ... CASCADE`, trigger-constraint bypass, or superuser privileges.
+
+## Offline SQLite ↔ PostgreSQL conversion
+
+Use the same build for both engines. This build's reviewed compatibility pair is
+SQLite `0347_quality_multi_counts_language` and PostgreSQL
+`0004_subtitle_job_ids`. Older/newer histories, changed SQLite schema objects,
+unexpected tables/columns/types/identities, and incompatible values are refused;
+conversion does not upgrade the source. Upgrade with its existing backend first.
+
+1. Stop Arrmada and all maintenance commands and external database writers. Take
+   an independent backup. Keep the source and filesystem paths intact.
+2. Set `ARRMADA_POSTGRES_URL` and `ARRMADA_POSTGRES_SCHEMA` in the private
+   environment. For SQLite → PostgreSQL, the operator must provision a **new
+   empty owned schema**. For PostgreSQL → SQLite, choose a **new nonexistent
+   file**, with no journal/WAL/SHM or staged restore at that destination.
+3. Run exactly one direction as the application/filesystem user:
+
+   ```sh
+   arrmada convert-database --from sqlite --to postgres --sqlite-file /data/arrmada.db
+   # Or, from the configured PostgreSQL schema into a new file:
+   arrmada convert-database --from postgres --to sqlite --sqlite-file /new-data/arrmada.db
+   ```
+
+4. Only after success, select the destination backend/schema/data directory.
+   Preserve media/download/cover paths and other persistent filesystem data.
+   Start Arrmada and verify login and library state before retiring the source.
+   Simply selecting the old backend again does **not** replay later changes.
+
+The command does not change runtime configuration. SQLite conversion requires
+Linux/macOS/BSD file locking; its stable `.arrmada-sqlite-use.lock` sidecar must
+not be deleted or replaced. Shared runtime/maintenance leases exclude conversion;
+PostgreSQL uses the same exclusive lifecycle fencing as offline restore. These
+locks coordinate Arrmada, not arbitrary external SQL clients or older SQLite
+builds: stopping **all** writers remains mandatory. Source symlinks resolve to
+their real path; hard-linked SQLite source aliases are refused.
+
+SQLite source database/WAL are read-only, without upgrading or checkpointing;
+committed crashed-WAL changes are included in the snapshot. PostgreSQL sources
+use a read-only repeatable-read transaction. Destinations use trusted embedded
+migrations with independently generated migration metadata. Transfer verifies
+typed all-table multiset fingerprints, relationships and identity high-water
+marks (including deleted/rolled-back IDs). Normal SQLite ID allocation stays
+unchanged; extra `sqlite_sequence` bridge entries retain PostgreSQL sequence gaps
+for a future conversion back. Unknown JSON fields and large integers are copied
+as text, not parsed through floating point.
+
+Conversion refuses NUL/invalid-UTF8 text, non-integer INTEGER values, non-finite
+floats, lossy numeric coercions, negative-zero floats when targeting SQLite, NULL
+primary keys, timestamps outside years 1–9999 or with sub-microsecond precision.
+Timestamps are normalized to UTC. Repair unsupported values deliberately in the
+source using a backed-up installation; the converter never silently repairs them.
+
+PostgreSQL initialization/data/verification commit together. SQLite is built in a
+private staging directory, checked, closed and synced, then published with an
+exclusive hard link; the destination filesystem must support hard links. Reserve
+space for a fresh reference schema plus the destination and at least 17 MiB of
+headroom. SQLite → PostgreSQL uses `<data>/conversion-work` for the reference;
+PostgreSQL → SQLite stages beside the new file. Ordinary failures remove private
+staging files and leave the destination empty/unpublished, permitting retry.
+Never overwrite an occupied destination, including one created concurrently.
+A process/machine crash can leave private `.arrmada-conversion-*` staging files;
+inspect them offline before manual cleanup. A connection loss during PostgreSQL
+COMMIT has an uncertain outcome: inspect the destination before retrying, never
+clear it automatically. The preserved source is not a live failover replica.
 
 ## What still lives on disk
 

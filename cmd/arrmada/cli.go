@@ -53,6 +53,7 @@ var cliCommands = []cliCommand{
 			return restoreCommand(c.cfg.DataDir, args, c.stdout, c.stderr)
 		}},
 	{name: "restore-postgres", args: "--schema <empty destination schema> <archive.pgdump>", summary: "restore offline into an empty PostgreSQL schema using ARRMADA_POSTGRES_URL", dataDir: true, run: cmdRestorePostgres},
+	{name: "convert-database", args: "--from sqlite|postgres --to postgres|sqlite --sqlite-file <source or new destination.db>", summary: "convert offline between SQLite and the configured PostgreSQL schema; preserve the source", dataDir: true, run: cmdConvertDatabase},
 	{name: "backups", summary: "list the backups in the data folder", dataDir: true,
 		run: func(_ context.Context, c *cli, args []string) int {
 			return backupsCommandForBackend(c.cfg.DataDir, args, c.stdout, c.stderr, store.Dialect(c.cfg.DatabaseBackend), c.cfg.PostgresBinDir)

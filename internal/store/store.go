@@ -20,12 +20,13 @@ import (
 
 // Store wraps the database connection pool.
 type Store struct {
-	db      *sql.DB
-	pg      *Database
-	owner   *postgresOwner
-	pgOpt   PostgresOptions
-	dataDir string
-	dbPath  string
+	db        *sql.DB
+	pg        *Database
+	owner     *postgresOwner
+	pgOpt     PostgresOptions
+	sqliteUse *os.File
+	dataDir   string
+	dbPath    string
 
 	// snapMu serialises Snapshot: two copies picking a name in the same second
 	// would otherwise share a .tmp file and clobber each other.
@@ -89,6 +90,16 @@ func OpenWith(dataDir string, opt Options) (*Store, error) {
 	if err := mkPrivateDir(dataDir); err != nil {
 		return nil, fmt.Errorf("create data dir %q: %w", dataDir, err)
 	}
+	lease, err := lockSQLiteUse(dataDir, false)
+	if err != nil {
+		return nil, err
+	}
+	opened := false
+	defer func() {
+		if !opened {
+			_ = lease.Close()
+		}
+	}()
 
 	fsys := opt.migrations
 	if fsys == nil {
@@ -98,7 +109,7 @@ func OpenWith(dataDir string, opt Options) (*Store, error) {
 	// anything has the database open. It never stops the boot; see restore.go.
 	applyPendingRestore(dataDir, versionsIn(fsys), log)
 
-	st := &Store{dataDir: dataDir, dbPath: filepath.Join(dataDir, "arrmada.db")}
+	st := &Store{dataDir: dataDir, dbPath: filepath.Join(dataDir, "arrmada.db"), sqliteUse: lease}
 	if opt.migrations == nil && opt.BeforeMigrate == nil && !opt.noTestTemplate {
 		// A no-op outside `go test`; see testtemplate.go.
 		if err := seedFromTestTemplate(st.dbPath); err != nil {
@@ -128,6 +139,7 @@ func OpenWith(dataDir string, opt Options) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	opened = true
 	return st, nil
 }
 
@@ -246,6 +258,16 @@ func OpenNoMigrate(dataDir string) (*Store, error) {
 	if !fi.Mode().IsRegular() {
 		return nil, fmt.Errorf("%s isn't a database file", dbPath)
 	}
+	lease, err := lockSQLiteUse(dataDir, false)
+	if err != nil {
+		return nil, err
+	}
+	opened := false
+	defer func() {
+		if !opened {
+			_ = lease.Close()
+		}
+	}()
 	db, err := openDB(dbPath)
 	if err != nil {
 		return nil, err
@@ -256,7 +278,8 @@ func OpenNoMigrate(dataDir string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
-	return &Store{db: db, dataDir: dataDir, dbPath: dbPath}, nil
+	opened = true
+	return &Store{db: db, dataDir: dataDir, dbPath: dbPath, sqliteUse: lease}, nil
 }
 
 // openDB opens the pool every Store uses: WAL, foreign keys on, busy timeout, and
@@ -323,5 +346,9 @@ func (s *Store) Close() error {
 	if s.owner != nil {
 		return s.owner.Close()
 	}
-	return s.DB().Close()
+	err := s.DB().Close()
+	if s.sqliteUse != nil {
+		_ = s.sqliteUse.Close()
+	}
+	return err
 }
