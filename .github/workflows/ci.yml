@@ -154,6 +154,31 @@ jobs:
           ARRMADA_TEST_POSTGRES_BIN: /usr/lib/postgresql/${{ matrix.postgres }}/bin
           ARRMADA_TEST_BINARY: /tmp/arrmada-postgres-test
         run: go test -race -timeout 10m -count=1 ./internal/store -run 'Test(Postgres|Bind|DatabaseSQLiteBoundary)'
+      - name: Enable certificate-verified TLS on the disposable test service
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost -addext subjectAltName=DNS:localhost -keyout /tmp/arrmada-test-server.key -out /tmp/arrmada-test-server.crt
+          docker cp /tmp/arrmada-test-server.key "$POSTGRES_CONTAINER:/tmp/arrmada-test-server.key"
+          docker cp /tmp/arrmada-test-server.crt "$POSTGRES_CONTAINER:/tmp/arrmada-test-server.crt"
+          docker exec -u root "$POSTGRES_CONTAINER" chown postgres:postgres /tmp/arrmada-test-server.key /tmp/arrmada-test-server.crt
+          docker exec -u root "$POSTGRES_CONTAINER" chmod 600 /tmp/arrmada-test-server.key
+          docker exec -u postgres "$POSTGRES_CONTAINER" psql -U postgres -d arrmada_test -c "ALTER SYSTEM SET ssl_cert_file='/tmp/arrmada-test-server.crt'"
+          docker exec -u postgres "$POSTGRES_CONTAINER" psql -U postgres -d arrmada_test -c "ALTER SYSTEM SET ssl_key_file='/tmp/arrmada-test-server.key'"
+          docker exec -u postgres "$POSTGRES_CONTAINER" psql -U postgres -d arrmada_test -c "ALTER SYSTEM SET ssl=on"
+          docker exec -u postgres "$POSTGRES_CONTAINER" psql -U postgres -d arrmada_test -c 'SELECT pg_reload_conf()'
+          for attempt in $(seq 1 20); do
+            if /usr/lib/postgresql/${{ matrix.postgres }}/bin/psql 'postgres://postgres:arrmada-test-only@localhost:5432/arrmada_test?sslmode=verify-full&sslrootcert=/tmp/arrmada-test-server.crt' -c 'SELECT 1'; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+      - name: Verify Go/native TLS, certificate rejection and compressed recovery
+        env:
+          ARRMADA_TEST_POSTGRES_TLS_URL: postgres://postgres:arrmada-test-only@localhost:5432/arrmada_test?sslmode=verify-full&sslrootcert=/tmp/arrmada-test-server.crt
+          ARRMADA_TEST_POSTGRES_BIN: /usr/lib/postgresql/${{ matrix.postgres }}/bin
+        run: go test -race -timeout 5m -count=1 ./internal/store -run '^TestPostgresVerifiedTLSAndCompressedRecovery$'
 
   audit:
     name: Vulnerability scan (govulncheck, npm audit)
