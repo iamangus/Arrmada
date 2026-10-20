@@ -111,6 +111,16 @@ func checkJSONSeasonNotices(t *testing.T, ctx context.Context, db store.Pool) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, query := range []string{"sHOW", "S_ow"} {
+		found, total, err := r.List(ctx, requests.ListFilter{Query: query, Limit: 10})
+		want := 1
+		if query == "S_ow" {
+			want = 0 // the user's underscore is literal, not a wildcard
+		}
+		if err != nil || len(found) != want || total != want {
+			t.Fatalf("request title filter %q = %+v/%d, %v", query, found, total, err)
+		}
+	}
 	for _, step := range []struct {
 		season int
 		at     int64

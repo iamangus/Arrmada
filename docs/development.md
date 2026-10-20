@@ -74,6 +74,10 @@ person/title totals and graph aggregates on both engines. PostgreSQL graph bucke
 use the application's local timezone (including custom fixed zones and repeated DST
 hours), not the remote server's timezone. Book edit/reset stamps and repeated offline
 listening uploads have paired high-water-mark tests as well.
+Calendar/list/preset tests cover undated and malformed provider dates, integer
+monitoring flags, acquisition summaries and literal/case-insensitive searches.
+Subtitle queue ids are checked across pruning and service reconstruction, with
+an upgrade test for the explicit-id sequence high-water migration.
 
 Repository constructors accept `store.Pool`; multi-step writes use
 `store.WithTx` and its dialect-aware `store.Transaction`. Architecture tests
@@ -87,8 +91,11 @@ The parameter boundary handles bare `?` and SQLite's repeated numbered `?N`
 markers, including prepared statements; it does not translate SQL dialects.
 
 Without the environment variable the real-server tests explicitly skip; CI supplies
-disposable PostgreSQL 16, 17 and 18 services so they must run there. This does not yet establish
-application-level PostgreSQL feature parity or a supported server-version range.
+disposable PostgreSQL 16, 17 and 18 services so they must run there. The connector
+rejects server versions outside that range and pins UTC, ISO/YMD dates and Read
+Committed isolation independently of shared-server defaults or URL options.
+This does not yet establish application-level PostgreSQL feature parity: runtime
+selection, backups/restores and conversion are still under development.
 
 ## Screenshots
 

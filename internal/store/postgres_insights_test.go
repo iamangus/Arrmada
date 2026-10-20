@@ -66,7 +66,7 @@ func checkInsightsRepositories(t *testing.T, ctx context.Context, db store.Pool)
 	if err != nil || len(stats.Movies) != 1 || stats.Movies[0].Plays != 2 || stats.Movies[0].Secs != 180 || len(stats.Users) != 1 || stats.Users[0].Secs != 180 {
 		t.Fatalf("watch totals = %+v, %v", stats, err)
 	}
-	for _, filter := range []insights.HistoryFilter{{Group: true}, {Group: true, Query: "Heat"}} {
+	for _, filter := range []insights.HistoryFilter{{Group: true}, {Group: true, Query: "heat"}, {Query: "HEAT"}} {
 		history, err := svc.History(ctx, filter)
 		if err != nil || history.Total == 0 || len(history.Rows) == 0 {
 			t.Fatalf("grouped history (%+v) = %+v, %v", filter, history, err)

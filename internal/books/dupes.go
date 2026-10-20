@@ -406,7 +406,7 @@ var mergedDetailRe = regexp.MustCompile(`^Merged (duplicate entry )?(?:("(?:[^"\
 func (s *Service) PastMerges(ctx context.Context, limit int) ([]PastMerge, error) {
 	rows, err := s.repo.db.QueryContext(ctx,
 		`SELECT e.book_id, b.title, e.detail, e.created_at FROM book_events e JOIN books b ON b.id = e.book_id
-		  WHERE e.event = 'merged' AND (e.detail LIKE 'Merged duplicate entry %' OR e.detail LIKE 'Merged “%')
+		  WHERE e.event = 'merged' AND (`+store.LikeASCII(s.repo.db, "e.detail", "'Merged duplicate entry %'", false)+` OR `+store.LikeASCII(s.repo.db, "e.detail", "'Merged “%'", false)+`)
 		  ORDER BY e.id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err

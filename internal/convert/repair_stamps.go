@@ -48,7 +48,7 @@ func RepairCodecStamps(ctx context.Context, db store.Pool, set *settings.Service
 		// LIKE is case-insensitive in SQLite, so this over-selects slightly; the exact
 		// suffix is checked below. Rows are read fully before any write.
 		rows, err := db.QueryContext(ctx,
-			`SELECT id, source_release FROM `+table+` WHERE source_release LIKE '% AV1' OR source_release LIKE '% x265'`)
+			`SELECT id, source_release FROM `+table+` WHERE `+store.LikeASCII(db, "source_release", "'% AV1'", false)+` OR `+store.LikeASCII(db, "source_release", "'% x265'", false))
 		if err != nil {
 			return 0, err
 		}

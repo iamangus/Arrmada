@@ -257,7 +257,15 @@ const danglingRef = `quality_profile LIKE 'custom:%'
 // repointDangling sets every dangling ref in table (narrowed by an extra WHERE clause)
 // to `to`, returning how many rows changed.
 func (r *Repo) repointDangling(ctx context.Context, table, where, to string, args ...any) (int, error) {
-	q := `UPDATE ` + table + ` SET quality_profile = ? WHERE ` + danglingRef
+	dangling := danglingRef
+	if store.DialectOf(r.db) == store.Postgres {
+		// Invalid historical references are dangling, not a cast error that
+		// aborts reconciliation. Profile identities are signed 64-bit values.
+		dangling = store.LikeASCII(r.db, "quality_profile", "'custom:%'", false) + ` AND
+			(CASE WHEN pg_input_is_valid(substr(quality_profile, 8), 'bigint')
+			THEN CAST(substr(quality_profile, 8) AS bigint) ELSE 0 END) NOT IN (SELECT id FROM quality_profiles)`
+	}
+	q := `UPDATE ` + table + ` SET quality_profile = ? WHERE ` + dangling
 	if where != "" {
 		q += ` AND ` + where
 	}

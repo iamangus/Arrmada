@@ -42,6 +42,22 @@ func FoldASCII(q Execer, expression string) string {
 	return "lower(" + expression + ")"
 }
 
+// LikeASCII preserves SQLite LIKE's ASCII-only case folding. With no explicit
+// escape, SQLite treats backslashes literally; PostgreSQL needs ESCAPE ” to
+// match that behavior. SQL operands are trusted expressions, not request data.
+func LikeASCII(q Execer, value, pattern string, backslashEscape bool) string {
+	escape := ""
+	if backslashEscape {
+		escape = ` ESCAPE '\'`
+	} else if DialectOf(q) == Postgres {
+		escape = ` ESCAPE ''`
+	}
+	if DialectOf(q) == Postgres {
+		value, pattern = FoldASCII(q, value), FoldASCII(q, pattern)
+	}
+	return value + " LIKE " + pattern + escape
+}
+
 // UTCNowText is the database clock in SQLite's UTC second-resolution layout,
 // for columns that deliberately store dates as text. An optional modifier is
 // a trusted SQL expression (usually a bound ? interval), never interpolated input.
@@ -68,6 +84,27 @@ func UTCNowTimestamp(q Execer, modifier string) string {
 		expression = "(" + expression + ") + CAST(" + modifier + " AS interval)"
 	}
 	return expression
+}
+
+// UTCDateText is today's UTC date in the application's YYYY-MM-DD layout.
+func UTCDateText(q Execer) string {
+	if DialectOf(q) == Postgres {
+		return "to_char(statement_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD')"
+	}
+	return "date('now')"
+}
+
+// DateText extracts a UTC date from a stored ISO date/timestamp, returning NULL
+// for malformed input instead of aborting a report. The expression is trusted
+// SQL and appears once, so a bound ? still consumes exactly one argument.
+func DateText(q Execer, expression string) string {
+	if DialectOf(q) == Postgres {
+		return `(SELECT CASE WHEN v ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}([ T].*)?$'
+			AND pg_input_is_valid(v, 'timestamptz')
+			THEN to_char(CAST(v AS timestamptz) AT TIME ZONE 'UTC', 'YYYY-MM-DD') END
+			FROM (VALUES (CAST(` + expression + ` AS text))) AS arrmada_date_input(v))`
+	}
+	return "date(" + expression + ")"
 }
 
 // ScalarMin and ScalarMax compare non-null expressions, not groups of rows.

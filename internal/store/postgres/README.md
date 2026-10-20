@@ -34,3 +34,9 @@ New application tables must install the same `arrmada_serialize_writes` trigger;
 an integration test checks that every application table participates. Increasing
 write concurrency later requires auditing the read-then-write invariants, not
 simply removing this lock.
+
+`0004_subtitle_job_ids.sql` advances the subtitle job identity sequence for the
+queue's explicitly assigned ids and backfills existing rows. This prevents a
+restart after pruning from reusing an id, matching SQLite AUTOINCREMENT's safety
+property. As with native PostgreSQL identities, a rolled-back insert can leave a
+sequence gap; it must never move the high-water mark backwards.

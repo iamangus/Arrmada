@@ -119,7 +119,7 @@ const albumCounts = `
 // counts and arithmetic as statsFromAlbums (which the detail read uses), so list and
 // detail agree. About a third of a second on a 15,000-album, 200,000-track library.
 func (r *Repo) artistStats(ctx context.Context) (map[int64]*ArtistStats, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT al.artist_id, (al.monitored = 1 AND al.stale_since IS NULL),`+albumCounts+` FROM albums al`)
+	rows, err := r.db.QueryContext(ctx, `SELECT al.artist_id, CASE WHEN al.monitored = 1 AND al.stale_since IS NULL THEN 1 ELSE 0 END,`+albumCounts+` FROM albums al`)
 	if err != nil {
 		return nil, err
 	}
@@ -813,7 +813,7 @@ func recordTrackFileTx(ctx context.Context, tx *store.Transaction, trackID int64
 		  album_id = ?, release_track_id = ?, path = ?, size_bytes = ?, mtime_unix = ?, file_id = ?, container = ?,
 		  lossless = ?, quality = ?, bitrate_kbps = ?, codec = ?, sample_rate_hz = ?, bit_depth = ?,
 		  channels = ?, duration_ms = ?,
-		  probed_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END,
+		  probed_at = CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
 		  source_release = CASE WHEN ? != '' THEN ? ELSE source_release END,
 		  download_hash = CASE WHEN ? != '' THEN ? ELSE download_hash END,
 		  tags_json = ?, tag_state = ?,

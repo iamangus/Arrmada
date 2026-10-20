@@ -361,7 +361,7 @@ func (h *historyStore) list(ctx context.Context, f HistoryFilter) ([]HistoryEntr
 		args = append(args, f.Media)
 	}
 	if q := strings.TrimSpace(f.Q); q != "" {
-		where = append(where, "title LIKE ? ESCAPE '\\'")
+		where = append(where, store.LikeASCII(h.db, "title", "?", true))
 		args = append(args, "%"+likeEscape(q)+"%")
 	}
 	if f.Before != "" {

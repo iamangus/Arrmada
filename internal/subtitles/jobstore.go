@@ -195,13 +195,19 @@ func saveJob(ctx context.Context, db store.Execer, j Job) error {
 }
 
 // lastID is the highest id ever handed out, so the next one is never a repeat — even of
-// a row since pruned (AUTOINCREMENT keeps that in sqlite_sequence).
+// a row since pruned (SQLite AUTOINCREMENT, or PostgreSQL's explicit-id sequence
+// high-water trigger, keeps it after the row has gone).
 func (st *jobStore) lastID(ctx context.Context) (int64, error) {
 	var seq, top sql.NullInt64
 	if err := st.db.QueryRowContext(ctx, `SELECT MAX(id) FROM subtitle_jobs`).Scan(&top); err != nil {
 		return 0, err
 	}
-	err := st.db.QueryRowContext(ctx, `SELECT seq FROM sqlite_sequence WHERE name = 'subtitle_jobs'`).Scan(&seq)
+	sequenceQuery := `SELECT seq FROM sqlite_sequence WHERE name = 'subtitle_jobs'`
+	if store.DialectOf(st.db) == store.Postgres {
+		sequenceQuery = `SELECT pg_catalog.pg_sequence_last_value(
+			pg_catalog.pg_get_serial_sequence('subtitle_jobs', 'id')::regclass)`
+	}
+	err := st.db.QueryRowContext(ctx, sequenceQuery).Scan(&seq)
 	if err != nil && err != sql.ErrNoRows {
 		return 0, err
 	}

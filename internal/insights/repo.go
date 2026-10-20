@@ -268,7 +268,7 @@ func (r *repo) history(ctx context.Context, f HistoryFilter) ([]HistoryRow, int,
 // and hands each row to fn. It returns the total number of rows the filters match, for
 // paging.
 func (r *repo) historyEach(ctx context.Context, f HistoryFilter, fn func(HistoryRow) error) (int, error) {
-	where, args := historyWhere(f)
+	where, args := historyWhere(r.db, f)
 	// total count for pagination
 	var total int
 	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM stream_sessions`+where, args...).Scan(&total); err != nil {
@@ -395,7 +395,7 @@ func groupedMarkedSQL(db store.Execer, where string) string {
 // first, then LAG over each person's sittings of an item finds the gap since the previous
 // one ended — one pass over the filtered plays per page.
 func (r *repo) historyGroupedWindow(ctx context.Context, f HistoryFilter, fn func(GroupedRow) error) (int, error) {
-	conds, args := historyConds(f)
+	conds, args := historyConds(r.db, f)
 	where, and := "", ""
 	if len(conds) > 0 {
 		where = " WHERE " + strings.Join(conds, " AND ")
@@ -471,8 +471,8 @@ func prefixed(alias, cols string) string {
 	return strings.Join(parts, ",")
 }
 
-func historyWhere(f HistoryFilter) (string, []any) {
-	conds, args := historyConds(f)
+func historyWhere(db store.Execer, f HistoryFilter) (string, []any) {
+	conds, args := historyConds(db, f)
 	if len(conds) == 0 {
 		return "", nil
 	}
@@ -480,7 +480,7 @@ func historyWhere(f HistoryFilter) (string, []any) {
 }
 
 // historyConds is History's filters as SQL conditions on stream_sessions' columns.
-func historyConds(f HistoryFilter) ([]string, []any) {
+func historyConds(db store.Execer, f HistoryFilter) ([]string, []any) {
 	var conds []string
 	var args []any
 	if f.UserID != "" {
@@ -496,7 +496,7 @@ func historyConds(f HistoryFilter) ([]string, []any) {
 		args = append(args, f.Decision)
 	}
 	if f.Query != "" {
-		conds = append(conds, "(title LIKE ? OR grandparent_title LIKE ? OR user_name LIKE ?)")
+		conds = append(conds, "("+store.LikeASCII(db, "title", "?", false)+" OR "+store.LikeASCII(db, "grandparent_title", "?", false)+" OR "+store.LikeASCII(db, "user_name", "?", false)+")")
 		like := "%" + f.Query + "%"
 		args = append(args, like, like, like)
 	}

@@ -159,27 +159,30 @@ func (r *Repo) ByTMDBIDs(ctx context.Context, tmdbIDs []int) ([]Series, error) {
 //
 // Specials (season 0) are left out — an optional special isn't a gap. The total counts
 // files too, so an unmonitored episode you have still shows as had.
-const statsSQL = `
+func statsSQL(db store.Execer) string {
+	return `
 	SELECT e.series_id,
-	  COALESCE(SUM(CASE WHEN e.has_file = 1 OR (` + wantedSQL + ` AND ` + statsAiredSQL + `) THEN 1 ELSE 0 END), 0),
+	  COALESCE(SUM(CASE WHEN e.has_file = 1 OR (` + wantedSQL + ` AND ` + statsAiredSQL(db) + `) THEN 1 ELSE 0 END), 0),
 	  COALESCE(SUM(e.has_file), 0),
 	  COALESCE(SUM(e.size_bytes), 0),
-	  COALESCE(SUM(CASE WHEN e.has_file = 0 AND ` + wantedSQL + ` AND ` + statsAiredSQL + ` THEN 1 ELSE 0 END), 0),
-	  COALESCE(SUM(CASE WHEN e.has_file = 0 AND NOT ` + wantedSQL + ` AND ` + statsAiredSQL + ` THEN 1 ELSE 0 END), 0),
-	  MIN(CASE WHEN e.has_file = 0 AND ` + wantedSQL + ` AND e.air_date <> '' AND date(e.air_date) > date('now') THEN e.air_date END)
+	  COALESCE(SUM(CASE WHEN e.has_file = 0 AND ` + wantedSQL + ` AND ` + statsAiredSQL(db) + ` THEN 1 ELSE 0 END), 0),
+	  COALESCE(SUM(CASE WHEN e.has_file = 0 AND NOT ` + wantedSQL + ` AND ` + statsAiredSQL(db) + ` THEN 1 ELSE 0 END), 0),
+	  MIN(CASE WHEN e.has_file = 0 AND ` + wantedSQL + ` AND e.air_date <> '' AND ` + store.DateText(db, "e.air_date") + ` > ` + store.UTCDateText(db) + ` THEN e.air_date END)
 	FROM episodes e
 	LEFT JOIN seasons sn ON sn.series_id = e.series_id AND sn.season_number = e.season_number
 	WHERE e.season_number > 0`
+}
 
-const (
-	wantedSQL     = `(e.monitored = 1 AND COALESCE(sn.monitored, 0) = 1)`
-	statsAiredSQL = `(e.air_date <> '' AND date(e.air_date) <= date('now'))`
-)
+const wantedSQL = `(e.monitored = 1 AND COALESCE(sn.monitored, 0) = 1)`
+
+func statsAiredSQL(db store.Execer) string {
+	return `(e.air_date <> '' AND ` + store.DateText(db, "e.air_date") + ` <= ` + store.UTCDateText(db) + `)`
+}
 
 // queryStats runs statsSQL, for every series or (ids given) just those.
 func (r *Repo) queryStats(ctx context.Context, ids ...int64) (map[int64]*Stats, error) {
 	out := map[int64]*Stats{}
-	q, args := statsSQL, []any{}
+	q, args := statsSQL(r.db), []any{}
 	sq, sargs := `SELECT series_id, COUNT(*) FROM seasons WHERE season_number > 0`, []any{}
 	if len(ids) > 0 {
 		marks := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
@@ -858,7 +861,7 @@ func (r *Repo) SeasonExists(ctx context.Context, seriesID int64, season int) boo
 func (r *Repo) SeasonHasMissing(ctx context.Context, seriesID int64, season int) bool {
 	q := `SELECT 1 FROM episodes
 	      WHERE series_id = ? AND has_file = 0 AND season_number > 0
-	        AND air_date != '' AND air_date <= date('now')`
+	        AND air_date != '' AND air_date <= ` + store.UTCDateText(r.db)
 	args := []any{seriesID}
 	if season > 0 {
 		q += ` AND season_number = ?`
@@ -981,7 +984,7 @@ func (r *Repo) HasWantedEpisodes(ctx context.Context, seriesID int64) bool {
 	err := r.db.QueryRowContext(ctx,
 		`SELECT 1 FROM episodes
 		 WHERE series_id = ? AND monitored = 1 AND has_file = 0 AND season_number > 0
-		   AND air_date != '' AND air_date <= date('now')
+		   AND air_date != '' AND air_date <= `+store.UTCDateText(r.db)+`
 		 LIMIT 1`, seriesID).Scan(&one)
 	return err == nil && one == 1
 }
@@ -1011,14 +1014,19 @@ type SeriesAcquisition struct {
 // episodes and the next upcoming episode, in one pass. Only series with something
 // outstanding in either bucket are worth returning; the caller filters.
 func (r *Repo) AcquisitionSummary(ctx context.Context) ([]SeriesAcquisition, error) {
+	seasons := `GROUP_CONCAT(DISTINCT CASE WHEN e.monitored = 1 AND e.has_file = 0 AND e.season_number > 0
+		AND e.air_date != '' AND e.air_date <= ` + store.UTCDateText(r.db) + ` THEN e.season_number END)`
+	if store.DialectOf(r.db) == store.Postgres {
+		seasons = `string_agg(DISTINCT CASE WHEN e.monitored = 1 AND e.has_file = 0 AND e.season_number > 0
+			AND e.air_date != '' AND e.air_date <= ` + store.UTCDateText(r.db) + ` THEN CAST(e.season_number AS text) END, ',')`
+	}
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT s.id, COALESCE(NULLIF(s.display_title, ''), s.title), s.year, s.poster_url, s.quality_profile, s.last_search_at, s.search_misses,
 		  SUM(CASE WHEN e.monitored = 1 AND e.has_file = 0 AND e.season_number > 0
-		           AND e.air_date != '' AND e.air_date <= date('now') THEN 1 ELSE 0 END) AS searching,
-		  MIN(CASE WHEN e.monitored = 1 AND e.has_file = 0 AND e.air_date > date('now')
+		           AND e.air_date != '' AND e.air_date <= `+store.UTCDateText(r.db)+` THEN 1 ELSE 0 END) AS searching,
+		  MIN(CASE WHEN e.monitored = 1 AND e.has_file = 0 AND e.air_date > `+store.UTCDateText(r.db)+`
 		           THEN e.air_date END) AS next_air,
-		  GROUP_CONCAT(DISTINCT CASE WHEN e.monitored = 1 AND e.has_file = 0 AND e.season_number > 0
-		           AND e.air_date != '' AND e.air_date <= date('now') THEN e.season_number END) AS wanted_seasons
+		  `+seasons+` AS wanted_seasons
 		FROM series s
 		JOIN episodes e ON e.series_id = s.id
 		WHERE s.monitored = 1
@@ -1533,7 +1541,7 @@ func (r *Repo) FolderSharedWith(ctx context.Context, seriesID int64, folder stri
 	// "Teen Titans Go".
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT DISTINCT series_id FROM episodes
-		 WHERE series_id != ? AND has_file = 1 AND file_path LIKE '%/' || ? || '/%'`,
+		 WHERE series_id != ? AND has_file = 1 AND `+store.LikeASCII(r.db, "file_path", "'%/' || ? || '/%'", false),
 		seriesID, folder)
 	if err != nil {
 		return nil

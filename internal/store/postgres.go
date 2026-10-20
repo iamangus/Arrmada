@@ -58,6 +58,7 @@ func openPostgresPool(ctx context.Context, opt PostgresOptions) (*Database, erro
 	// timestamp behavior independent of the shared server's session defaults.
 	cfg.RuntimeParams["search_path"] = pgx.Identifier{opt.Schema}.Sanitize() + ", pg_catalog, pg_temp"
 	cfg.RuntimeParams["timezone"] = "UTC"
+	cfg.RuntimeParams["datestyle"] = "ISO, YMD"
 	cfg.RuntimeParams["standard_conforming_strings"] = "on"
 	cfg.RuntimeParams["default_transaction_isolation"] = "read committed"
 	cfg.RuntimeParams["application_name"] = "arrmada"
@@ -77,6 +78,15 @@ func openPostgresPool(ctx context.Context, opt PostgresOptions) (*Database, erro
 		_ = pool.Close()
 		return nil, fmt.Errorf("connect PostgreSQL: %w", err)
 	}
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT current_setting('server_version_num')::integer`).Scan(&version); err != nil {
+		_ = pool.Close()
+		return nil, errors.New("could not determine PostgreSQL server version")
+	}
+	if !supportedPostgresVersion(version) {
+		_ = pool.Close()
+		return nil, errors.New("Arrmada requires PostgreSQL 16, 17 or 18; this server version is not supported")
+	}
 	var owns, usable bool
 	err = db.QueryRowContext(ctx, `SELECT
 		pg_has_role(current_user, n.nspowner, 'USAGE'),
@@ -88,3 +98,5 @@ func openPostgresPool(ctx context.Context, opt PostgresOptions) (*Database, erro
 	}
 	return db, nil
 }
+
+func supportedPostgresVersion(version int) bool { return version >= 160000 && version < 190000 }
