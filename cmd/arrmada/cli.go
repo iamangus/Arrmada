@@ -48,10 +48,35 @@ var cliCommands = []cliCommand{
 		run: func(_ context.Context, c *cli, args []string) int {
 			return restoreCommand(c.cfg.DataDir, args, c.stdout, c.stderr)
 		}},
+	{name: "restore-postgres", args: "--schema <empty destination schema> <archive.pgdump>", summary: "restore offline into an empty PostgreSQL schema using ARRMADA_POSTGRES_URL", dataDir: true, run: cmdRestorePostgres},
 	{name: "backups", summary: "list the backups in the data folder", dataDir: true,
 		run: func(_ context.Context, c *cli, args []string) int {
 			return backupsCommand(c.cfg.DataDir, args, c.stdout, c.stderr)
 		}},
+}
+
+func cmdRestorePostgres(ctx context.Context, c *cli, args []string) int {
+	flags := newFlags(c, "restore-postgres")
+	schema := flags.String("schema", "", "pre-provisioned empty destination schema (required)")
+	pos, stop, code := parseFlags(flags, args)
+	if stop {
+		return code
+	}
+	if *schema == "" || len(pos) != 1 {
+		fmt.Fprintln(c.stderr, "Usage: arrmada restore-postgres --schema <empty destination schema> <archive.pgdump>")
+		return exitUsage
+	}
+	address := os.Getenv("ARRMADA_POSTGRES_URL")
+	if address == "" {
+		fmt.Fprintln(c.stderr, "arrmada restore-postgres: set ARRMADA_POSTGRES_URL; connection credentials must not be command-line arguments")
+		return exitUsage
+	}
+	if err := store.RestorePostgres(ctx, store.PostgresOptions{URL: address, Schema: *schema}, pos[0], filepath.Join(c.cfg.DataDir, "restore-work")); err != nil {
+		fmt.Fprintf(c.stderr, "arrmada restore-postgres: %v\n", err)
+		return exitFail
+	}
+	fmt.Fprintln(c.stdout, "PostgreSQL recovery verified and committed. Source archive preserved; runtime configuration was not changed.")
+	return exitOK
 }
 
 // cli is what a command runs with: its streams and, for dataDir commands, the config.

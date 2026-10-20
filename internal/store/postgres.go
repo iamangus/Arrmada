@@ -63,6 +63,7 @@ func openPostgresPoolAfterConnect(ctx context.Context, opt PostgresOptions, afte
 	cfg.RuntimeParams["search_path"] = pgx.Identifier{opt.Schema}.Sanitize() + ", pg_catalog, pg_temp"
 	cfg.RuntimeParams["timezone"] = "UTC"
 	cfg.RuntimeParams["datestyle"] = "ISO, YMD"
+	cfg.RuntimeParams["client_encoding"] = "UTF8"
 	cfg.RuntimeParams["standard_conforming_strings"] = "on"
 	cfg.RuntimeParams["default_transaction_isolation"] = "read committed"
 	cfg.RuntimeParams["application_name"] = "arrmada"
@@ -105,6 +106,11 @@ func openPostgresPoolAfterConnect(ctx context.Context, opt PostgresOptions, afte
 	if !supportedPostgresVersion(version) {
 		_ = pool.Close()
 		return nil, errors.New("Arrmada requires PostgreSQL 16, 17 or 18; this server version is not supported")
+	}
+	var encoding string
+	if err := db.QueryRowContext(ctx, `SELECT current_setting('server_encoding')`).Scan(&encoding); err != nil || encoding != "UTF8" {
+		_ = pool.Close()
+		return nil, errors.New("Arrmada requires a UTF8-encoded PostgreSQL database")
 	}
 	var owns, usable bool
 	err = db.QueryRowContext(ctx, `SELECT

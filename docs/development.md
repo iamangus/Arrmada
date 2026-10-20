@@ -92,10 +92,11 @@ markers, including prepared statements; it does not translate SQL dialects.
 
 Without the environment variable the real-server tests explicitly skip; CI supplies
 disposable PostgreSQL 16, 17 and 18 services so they must run there. The connector
-rejects server versions outside that range and pins UTC, ISO/YMD dates and Read
+rejects server versions outside that range, requires a UTF8 database and pins
+UTF8 client encoding, UTC, ISO/YMD dates and Read
 Committed isolation independently of shared-server defaults or URL options.
 This does not yet establish application-level PostgreSQL feature parity: runtime
-selection, backups/restores and conversion are still under development.
+selection, built-in backups and conversion are still under development.
 
 Native archive tests additionally require `pg_dump` and `pg_restore` from
 PostgreSQL 16–18, no older than the server. Set `ARRMADA_TEST_POSTGRES_BIN` to
@@ -103,8 +104,15 @@ their directory if they are not on PATH. An explicitly enabled PostgreSQL test
 run fails rather than silently skipping missing native clients. The current
 private archive prototype checks restricted-role schema isolation, lookalike
 schema names, complete archive decoding, private file permissions, occupied
-backup filenames and failure cleanup. It does **not** yet prove offline restore
-or conversion. Locally built clients without TLS/compression support establish
+backup filenames and failure cleanup. Offline recovery tests additionally check
+trusted-migration initialization, all-table row-count/fingerprint verification,
+relationship checks, numeric precision, source/archive preservation, sequence
+high-water marks, restored triggers, and rollback of initialization after data,
+compatibility and cancellation failures. Conversion remains unimplemented.
+Set `ARRMADA_TEST_POSTGRES_RESTORE_ADMIN_URL` to a second disposable server to run
+the successful native-recovery test across server majors instead of within one
+server; source and destination both still use restricted application roles.
+Locally built clients without TLS/compression support establish
 only socket/uncompressed-archive coverage, not TLS or compressed-archive claims.
 
 Private lifecycle tests now cover single-owner admission, exclusion of upgrades
@@ -116,6 +124,44 @@ These primitives are not yet exposed by application startup. Native backup
 currently requires a single-host URL, no libpq service file and no encrypted-key
 `sslpassword` option; unsupported cases fail explicitly rather than silently
 dumping another target or weakening TLS settings.
+
+### Offline PostgreSQL recovery
+
+The maintenance command below is available while runtime backend wiring is still
+being completed. It accepts native custom-format COPY archives, not SQL scripts,
+SQLite files, directory archives or database-wide dumps. Recovery requires a
+build with **exactly matching PostgreSQL migration history**. To roll back, use
+the matching old build and its pre-upgrade archive; recover first, then upgrade.
+
+1. Stop Arrmada. Keep the old schema and filesystem data intact.
+2. Have the database operator provision a **new, empty, dedicated schema** in the
+   existing UTF8 database, owned by the application role. Do not use `public` or
+   a `pg_*` schema. No database-create or superuser privilege is needed by Arrmada.
+3. Supply the destination connection URL securely through the environment (never
+   as a command argument), install supported native clients, and run as the
+   filesystem/application user:
+
+   ```sh
+   # ARRMADA_POSTGRES_URL is already set securely to the existing database.
+   arrmada restore-postgres --schema arrmada_recovered /safe/backup.pgdump
+   ```
+
+The source archive is untouched. `pg_restore` only decodes data to a private
+temporary file; Arrmada never executes its DDL, functions, session commands or
+sequence SQL. Trusted embedded migrations, validated COPY data, deferred foreign
+key checks, trigger restoration and sequence state commit in one transaction.
+Failures roll back all destination objects; decoded temporary files are removed.
+Transferred tables must have the exact expected columns and migration checksums,
+and every table is fingerprinted after import. Recovery of an existing/occupied
+schema is refused, including an existing Arrmada installation. There is no
+`DROP ... CASCADE`, privilege escalation or in-app PostgreSQL restore.
+
+After success, update backend configuration to the recovered schema before
+starting Arrmada (runtime wiring is not yet available on this development
+branch). A lost connection during COMMIT has the usual remote-transaction
+ambiguity: inspect the destination before retrying. An occupied schema must never
+be cleared automatically. Database recovery does not restore media, covers,
+downloads, models, certificates or other filesystem data under the data directory.
 
 ## Screenshots
 

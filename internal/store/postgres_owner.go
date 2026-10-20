@@ -168,6 +168,37 @@ func (o *postgresOwner) Close() error {
 	// Discard, don't return a session with lifecycle locks to an idle pool.
 	_ = o.conn.Raw(func(any) error { return driver.ErrBadConn })
 	_ = o.conn.Close()
+	// Closing a socket during cancelled COPY is not a server acknowledgement:
+	// the backend can still be unwinding its transaction and holding session
+	// locks. Wait for this exact backend identity to disappear before reporting
+	// cleanup complete. Never terminate another backend to accelerate recovery.
+	if o.pid != 0 {
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		for {
+			var alive bool
+			e := o.control.QueryRowContext(cleanup, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity
+				WHERE pid = ? AND backend_start = ?)`, o.pid, o.started).Scan(&alive)
+			if e != nil {
+				if err == nil {
+					err = errors.New("could not confirm PostgreSQL lifecycle session cleanup; retry after the old session exits")
+				}
+				break
+			}
+			if !alive {
+				break
+			}
+			select {
+			case <-cleanup.Done():
+				if err == nil {
+					err = errors.New("PostgreSQL lifecycle session is still closing; retry after the old session exits")
+				}
+			case <-time.After(10 * time.Millisecond):
+				continue
+			}
+			break
+		}
+	}
 	if e := o.control.Close(); err == nil {
 		err = e
 	}

@@ -133,8 +133,8 @@ func postgresClientEnv(opt PostgresOptions) ([]string, error) {
 	for key, value := range values {
 		env = append(env, key+"="+value)
 	}
-	return append(env, "PGAPPNAME=arrmada-backup",
-		"PGOPTIONS=-c default_transaction_read_only=on -c timezone=UTC -c datestyle=ISO,YMD"), nil
+	return append(env, "PGAPPNAME=arrmada-backup", "PGCLIENTENCODING=UTF8",
+		"PGOPTIONS=-c default_transaction_read_only=on -c timezone=UTC -c datestyle=ISO,YMD -c bytea_output=hex -c extra_float_digits=3"), nil
 }
 
 // nativePostgresTool returns only a classified error. Native client diagnostics

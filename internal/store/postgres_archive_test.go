@@ -41,6 +41,9 @@ func TestPostgresClientEnvironment(t *testing.T) {
 	if values["PGSERVICE"] != "" || strings.Contains(values["PGOPTIONS"], "role=") {
 		t.Fatal("runtime override reached libpq")
 	}
+	if values["PGCLIENTENCODING"] != "UTF8" {
+		t.Fatal("native clients were not pinned to UTF8")
+	}
 	t.Setenv("PGSERVICE", "wrong-service")
 	if _, err := postgresClientEnv(opt); err == nil {
 		t.Fatal("service defaults were silently ignored instead of rejected")

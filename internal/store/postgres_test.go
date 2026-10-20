@@ -121,6 +121,7 @@ func postgresFixture(t *testing.T) (context.Context, *pgx.Conn, PostgresOptions,
 	q.Set("standard_conforming_strings", "off")
 	q.Set("default_transaction_isolation", "serializable")
 	q.Set("datestyle", "SQL, DMY")
+	q.Set("client_encoding", "LATIN1")
 	q.Set("options", "-csearch_path="+other+",public -ctimezone=Pacific/Honolulu -cstandard_conforming_strings=off -cdefault_transaction_isolation=serializable -cDateStyle=SQL,DMY")
 	u.RawQuery = q.Encode()
 	return ctx, admin, PostgresOptions{URL: u.String(), Schema: name, MaxConnections: 2}, other
@@ -170,9 +171,9 @@ func TestPostgresPoolRestrictedRoleAndSchema(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer conn.Close()
-		var schema, zone, conforming, isolation, dateStyle string
-		if err := conn.QueryRowContext(ctx, `SELECT current_schema(), current_setting('TimeZone'), current_setting('standard_conforming_strings'), current_setting('transaction_isolation'), current_setting('DateStyle')`).Scan(&schema, &zone, &conforming, &isolation, &dateStyle); err != nil || schema != opt.Schema || zone != "UTC" || conforming != "on" || isolation != "read committed" || dateStyle != "ISO, YMD" {
-			t.Fatalf("session = %q, %q, %q, %q, %q, %v", schema, zone, conforming, isolation, dateStyle, err)
+		var schema, zone, conforming, isolation, dateStyle, encoding string
+		if err := conn.QueryRowContext(ctx, `SELECT current_schema(), current_setting('TimeZone'), current_setting('standard_conforming_strings'), current_setting('transaction_isolation'), current_setting('DateStyle'), current_setting('client_encoding')`).Scan(&schema, &zone, &conforming, &isolation, &dateStyle, &encoding); err != nil || schema != opt.Schema || zone != "UTC" || conforming != "on" || isolation != "read committed" || dateStyle != "ISO, YMD" || encoding != "UTF8" {
+			t.Fatalf("session = %q, %q, %q, %q, %q, %q, %v", schema, zone, conforming, isolation, dateStyle, encoding, err)
 		}
 		var superuser, createdb, createrole bool
 		if err := conn.QueryRowContext(ctx, `SELECT rolsuper, rolcreatedb, rolcreaterole FROM pg_catalog.pg_roles WHERE rolname = current_user`).Scan(&superuser, &createdb, &createrole); err != nil || superuser || createdb || createrole {
