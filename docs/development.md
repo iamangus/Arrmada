@@ -36,6 +36,30 @@ cd web && npm run lint && npm test && npx tsc --noEmit -p . && npm run build && 
 `npm run e2e` runs the Playwright tests against the built UI with every API call answered
 from fixtures in `web/e2e`, so no backend is needed.
 
+### PostgreSQL integration tests
+
+The PostgreSQL connection boundary is tested against a real server, not a SQL mock.
+It is groundwork for the optional backend; the application still uses SQLite until
+the repository queries, schema lifecycle and administration paths are ported.
+
+Use a **disposable local database**, never an existing installation or a shared server:
+
+```sh
+export ARRMADA_TEST_POSTGRES_ADMIN_URL='postgres://postgres:test-password@127.0.0.1:5432/arrmada_test?sslmode=disable'
+go test -race -count=1 ./internal/store -run 'Test(Postgres|Bind|DatabaseSQLiteBoundary)'
+```
+
+The administrator URL is for test setup only: the fixture creates randomly named schemas
+and restricted login roles, runs the application connection as those roles, then removes
+only its own objects. The roles cannot create databases or roles and are not superusers.
+The tests check per-connection schema isolation, ownership checks, parameter binding,
+prepared queries and transaction rollback while another schema holds unrelated data.
+They also exercise the settings service's persistence, concurrent writes and failed-write
+behavior against PostgreSQL.
+Without the environment variable the real-server tests explicitly skip; CI supplies a
+disposable PostgreSQL 17 service so they must run there. This does not yet establish
+application-level PostgreSQL feature parity or a supported server-version range.
+
 ## Screenshots
 
 The pictures in the README and on the website (`docs/images/*.png`) are taken from those same

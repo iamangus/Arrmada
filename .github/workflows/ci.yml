@@ -102,6 +102,37 @@ jobs:
           ' go-test.json
           exit $status
 
+  postgres:
+    name: PostgreSQL connection and schema isolation
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: arrmada-test-only
+          POSTGRES_DB: arrmada_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+          cache: true
+      # Setup alone uses the disposable server's administrator. The tests create
+      # restricted application roles with no superuser or database-create access.
+      - name: Test PostgreSQL with restricted application roles (race)
+        env:
+          ARRMADA_TEST_POSTGRES_ADMIN_URL: postgres://postgres:arrmada-test-only@127.0.0.1:5432/arrmada_test?sslmode=disable
+        run: go test -race -count=1 ./internal/store -run 'Test(Postgres|Bind|DatabaseSQLiteBoundary)'
+
   audit:
     name: Vulnerability scan (govulncheck, npm audit)
     runs-on: ubuntu-24.04

@@ -9,6 +9,8 @@ var (
 	TestDB           = testDB
 	FillOldMusic     = fillOldMusic
 	FillBigOldMusic  = fillBigOldMusic
+	PostgresFixture  = postgresFixture
+	OpenPostgresPool = openPostgresPool
 )
 
 // MusicModelMigration is MUS-28's migration file.
