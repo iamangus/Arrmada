@@ -289,15 +289,15 @@ func (r *Repo) Create(ctx context.Context, s Series) (Series, error) {
 func (r *Repo) InsertSeasons(ctx context.Context, seriesID int64, seasons []Season) error {
 	for _, sn := range seasons {
 		if _, err := r.db.ExecContext(ctx,
-			`INSERT OR IGNORE INTO seasons (series_id, season_number, name, overview, poster_url, monitored)
-			 VALUES (?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO seasons (series_id, season_number, name, overview, poster_url, monitored)
+			 VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
 			seriesID, sn.SeasonNumber, sn.Name, sn.Overview, sn.PosterURL, b2i(sn.Monitored)); err != nil {
 			return err
 		}
 		for _, ep := range sn.Episodes {
 			if _, err := r.db.ExecContext(ctx,
-				`INSERT OR IGNORE INTO episodes (series_id, season_number, episode_number, title, overview, air_date, runtime, still_url, monitored, absolute_number)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO episodes (series_id, season_number, episode_number, title, overview, air_date, runtime, still_url, monitored, absolute_number)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
 				seriesID, ep.SeasonNumber, ep.EpisodeNumber, ep.Title, ep.Overview, ep.AirDate, ep.Runtime, ep.StillURL, b2i(ep.Monitored), ep.AbsoluteNumber); err != nil {
 				return err
 			}
@@ -339,15 +339,15 @@ func (r *Repo) InsertNewEpisodes(ctx context.Context, seriesID int64, seasons []
 	added := 0
 	for _, sn := range seasons {
 		if _, err := r.db.ExecContext(ctx,
-			`INSERT OR IGNORE INTO seasons (series_id, season_number, name, overview, poster_url, monitored)
-			 VALUES (?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO seasons (series_id, season_number, name, overview, poster_url, monitored)
+			 VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
 			seriesID, sn.SeasonNumber, sn.Name, sn.Overview, sn.PosterURL, b2i(sn.Monitored)); err != nil {
 			return added, err
 		}
 		for _, ep := range sn.Episodes {
 			res, err := r.db.ExecContext(ctx,
-				`INSERT OR IGNORE INTO episodes (series_id, season_number, episode_number, title, overview, air_date, runtime, still_url, monitored, absolute_number)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+				`INSERT INTO episodes (series_id, season_number, episode_number, title, overview, air_date, runtime, still_url, monitored, absolute_number)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0) ON CONFLICT DO NOTHING`,
 				seriesID, ep.SeasonNumber, ep.EpisodeNumber, ep.Title, ep.Overview, ep.AirDate, ep.Runtime, ep.StillURL, b2i(ep.Monitored))
 			if err != nil {
 				return added, err
@@ -668,7 +668,7 @@ func mergeExtra(stored, fresh *SeriesExtra) *SeriesExtra {
 // MarkRefreshed stamps a successful metadata pull, so the weekly re-check of ended shows
 // knows which are due.
 func (r *Repo) MarkRefreshed(ctx context.Context, id int64) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE series SET last_refreshed_at = datetime('now') WHERE id = ?`, id)
+	_, err := r.db.ExecContext(ctx, `UPDATE series SET last_refreshed_at = `+store.UTCNowText(r.db, "")+` WHERE id = ?`, id)
 	return err
 }
 
@@ -881,13 +881,13 @@ func (r *Repo) SearchState(ctx context.Context, seriesID int64) (lastSearchAt st
 // RecordSearchMiss stamps the sweep time and increments the miss counter.
 func (r *Repo) RecordSearchMiss(ctx context.Context, seriesID int64) {
 	_, _ = r.db.ExecContext(ctx,
-		`UPDATE series SET last_search_at = datetime('now'), search_misses = search_misses + 1 WHERE id = ?`, seriesID)
+		`UPDATE series SET last_search_at = `+store.UTCNowText(r.db, "")+`, search_misses = search_misses + 1 WHERE id = ?`, seriesID)
 }
 
 // ResetSearchMisses clears the backoff after a successful grab.
 func (r *Repo) ResetSearchMisses(ctx context.Context, seriesID int64) {
 	_, _ = r.db.ExecContext(ctx,
-		`UPDATE series SET last_search_at = datetime('now'), search_misses = 0 WHERE id = ?`, seriesID)
+		`UPDATE series SET last_search_at = `+store.UTCNowText(r.db, "")+`, search_misses = 0 WHERE id = ?`, seriesID)
 }
 
 // SetSearchPaced marks (or unmarks) a show as added in bulk: the missing sweep searches
@@ -1622,12 +1622,18 @@ type RecentImport struct {
 // import first, one row per show however many episodes landed. A show whose files have
 // all gone since is left out.
 func (r *Repo) RecentlyImported(ctx context.Context, days, limit int) ([]RecentImport, error) {
+	at := `CAST(strftime('%s', MAX(e.created_at)) AS INTEGER)`
+	since := `julianday(e.created_at) >= julianday('now', ?)`
+	if store.DialectOf(r.db) == store.Postgres {
+		at = `CAST(floor(extract(epoch FROM MAX(e.created_at))) AS bigint)`
+		since = `e.created_at >= ` + store.UTCNowTimestamp(r.db, "?")
+	}
 	rows, err := r.db.QueryContext(ctx, `
 SELECT s.tmdb_id, s.title, s.year, s.overview, s.poster_url,
-       CAST(strftime('%s', MAX(e.created_at)) AS INTEGER) AS at
+       `+at+` AS at
   FROM series_events e JOIN series s ON s.id = e.series_id
  WHERE e.event = 'imported' AND s.tmdb_id > 0
-   AND julianday(e.created_at) >= julianday('now', ?)
+   AND `+since+`
    AND EXISTS (SELECT 1 FROM episodes ep WHERE ep.series_id = s.id AND ep.has_file = 1)
  GROUP BY s.id
  ORDER BY at DESC, s.id DESC

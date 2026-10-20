@@ -41,3 +41,31 @@ func FoldASCII(q Execer, expression string) string {
 	}
 	return "lower(" + expression + ")"
 }
+
+// UTCNowText is the database clock in SQLite's UTC second-resolution layout,
+// for columns that deliberately store dates as text. An optional modifier is
+// a trusted SQL expression (usually a bound ? interval), never interpolated input.
+// Calendar month/year modifiers are not portable and must not be passed here.
+func UTCNowText(q Execer, modifier string) string {
+	if DialectOf(q) == Postgres {
+		return "to_char(" + UTCNowTimestamp(q, modifier) + ", 'YYYY-MM-DD HH24:MI:SS')"
+	}
+	if modifier != "" {
+		return "datetime('now', " + modifier + ")"
+	}
+	return "datetime('now')"
+}
+
+// UTCNowTimestamp is the native UTC clock for TIMESTAMP columns. SQLite has no
+// separate timestamp type, so there it uses the same text representation.
+// The modifier contract is the same as UTCNowText.
+func UTCNowTimestamp(q Execer, modifier string) string {
+	if DialectOf(q) != Postgres {
+		return UTCNowText(q, modifier)
+	}
+	expression := "statement_timestamp() AT TIME ZONE 'UTC'"
+	if modifier != "" {
+		expression = "(" + expression + ") + CAST(" + modifier + " AS interval)"
+	}
+	return expression
+}

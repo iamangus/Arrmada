@@ -76,7 +76,7 @@ func addKey(ctx context.Context, ex store.Execer, key string, bookID int64, sour
 		source = KeySource(key)
 	}
 	_, err := ex.ExecContext(ctx,
-		`INSERT OR IGNORE INTO book_keys (key, book_id, source) VALUES (?, ?, ?)`, key, bookID, source)
+		`INSERT INTO book_keys (key, book_id, source) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, key, bookID, source)
 	return err
 }
 

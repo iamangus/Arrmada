@@ -229,7 +229,7 @@ func (c *probeCache) put(ctx context.Context, path string, size, mtime int64, mi
 	}
 	_, _ = c.db.ExecContext(ctx,
 		`INSERT INTO subtitle_probe_cache (path, size_bytes, mtime_unix, info_json, probed_at)
-		 VALUES (?, ?, ?, ?, datetime('now'))
+		 VALUES (?, ?, ?, ?, `+store.UTCNowText(c.db, "")+`)
 		 ON CONFLICT(path) DO UPDATE SET
 		   size_bytes = excluded.size_bytes,
 		   mtime_unix = excluded.mtime_unix,

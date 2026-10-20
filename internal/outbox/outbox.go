@@ -168,7 +168,7 @@ func (o *Outbox) Enqueue(ctx context.Context, q store.Execer, topic string, payl
 		if _, err := q.ExecContext(ctx,
 			`INSERT INTO outbox (topic, consumer, payload, dedupe_key, created_at) VALUES (?, ?, ?, ?, ?)
 			 ON CONFLICT (consumer, dedupe_key) WHERE dedupe_key != '' AND done_at = 0 AND failed_at = 0
-			 DO UPDATE SET payload = excluded.payload, next_at = 0, gen = gen + 1`,
+			 DO UPDATE SET payload = excluded.payload, next_at = 0, gen = outbox.gen + 1`,
 			topic, c.name, string(body), key, now); err != nil {
 			return fmt.Errorf("outbox: enqueue %s for %s: %w", topic, c.name, err)
 		}
@@ -390,27 +390,39 @@ var ErrNotFound = errors.New("outbox: no such waiting or failed row")
 // row's work is already queued again under the same key, that row will do it, and the
 // failed one is closed instead of revived alongside it.
 func (o *Outbox) Retry(ctx context.Context, id int64) error {
-	res, err := o.db.ExecContext(ctx,
-		`UPDATE OR IGNORE outbox SET attempts = 0, next_at = 0, failed_at = 0, last_error = '', gen = gen + 1
-		 WHERE id = ? AND done_at = 0`, id)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n > 0 {
-		o.Nudge()
+	revived := false
+	err := store.WithTx(ctx, o.db, func(tx *store.Transaction) error {
+		// Match the partial unique index, excluding this row itself. Decide under
+		// the writer lock before updating: a constraint error aborts PostgreSQL
+		// transactions and cannot be used as SQLite's OR IGNORE control flow.
+		res, err := tx.ExecContext(ctx,
+			`UPDATE outbox SET attempts = 0, next_at = 0, failed_at = 0, last_error = '', gen = gen + 1
+			 WHERE id = ? AND done_at = 0 AND NOT EXISTS (
+			   SELECT 1 FROM outbox pending WHERE pending.id != outbox.id
+			     AND pending.consumer = outbox.consumer AND pending.dedupe_key = outbox.dedupe_key
+			     AND pending.dedupe_key != '' AND pending.done_at = 0 AND pending.failed_at = 0)`, id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			revived = true
+			return nil
+		}
+		res, err = tx.ExecContext(ctx,
+			`UPDATE outbox SET done_at = ?, last_error = 'superseded by a newer queued row' WHERE id = ? AND done_at = 0`,
+			o.now().Unix(), id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
 		return nil
+	})
+	if err == nil && revived {
+		o.Nudge()
 	}
-	// Either no such row, or reviving it collided with a pending duplicate.
-	res, err = o.db.ExecContext(ctx,
-		`UPDATE outbox SET done_at = ?, last_error = 'superseded by a newer queued row' WHERE id = ? AND done_at = 0`,
-		o.now().Unix(), id)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return err
 }
 
 // Prune deletes rows that finished more than olderThan ago and reports how many. Failed

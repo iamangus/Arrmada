@@ -121,8 +121,8 @@ func (s *Store) RekeyItemsTx(ctx context.Context, tx *store.Transaction, moves m
 		n, _ = res.RowsAffected()
 		c.Sessions += int(n)
 		if res, err = tx.ExecContext(ctx,
-			`INSERT OR IGNORE INTO listen_bookmarks (user_id, item_key, time, title, created_at)
-			 SELECT user_id, ?, time, title, created_at FROM listen_bookmarks WHERE item_key = ?`, nw, old); err != nil {
+			`INSERT INTO listen_bookmarks (user_id, item_key, time, title, created_at)
+			 SELECT user_id, ?, time, title, created_at FROM listen_bookmarks WHERE item_key = ? ON CONFLICT DO NOTHING`, nw, old); err != nil {
 			return c, fmt.Errorf("re-key bookmarks: %w", err)
 		}
 		n, _ = res.RowsAffected()

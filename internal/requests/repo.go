@@ -529,7 +529,7 @@ type Subscriber struct {
 // AddSubscriber attaches a user to a request. Idempotent (unique request_id+user_id).
 func (r *Repo) AddSubscriber(ctx context.Context, requestID, userID int64, userName string) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO request_subscribers (request_id, user_id, user_name) VALUES (?, ?, ?)`,
+		`INSERT INTO request_subscribers (request_id, user_id, user_name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
 		requestID, userID, userName)
 	return err
 }

@@ -39,8 +39,8 @@ func (f *failureStore) recordFailure(ctx context.Context, key, errMsg string) in
 	var n int
 	if err := f.db.QueryRowContext(ctx,
 		`INSERT INTO convert_failures (item_key, count, last_error, updated_at)
-		 VALUES (?, 1, ?, datetime('now'))
-		 ON CONFLICT(item_key) DO UPDATE SET count = count + 1, last_error = excluded.last_error, updated_at = datetime('now')
+		 VALUES (?, 1, ?, `+store.UTCNowText(f.db, "")+`)
+		 ON CONFLICT(item_key) DO UPDATE SET count = convert_failures.count + 1, last_error = excluded.last_error, updated_at = excluded.updated_at
 		 RETURNING count`,
 		key, errMsg).Scan(&n); err != nil {
 		return 0

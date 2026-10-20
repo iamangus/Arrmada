@@ -106,7 +106,7 @@ func (r *Repo) markSeen(ctx context.Context, authorID int64, works []metadata.Bo
 		for _, wk := range works {
 			for _, k := range seenKeys(wk) {
 				if _, err := tx.ExecContext(ctx,
-					`INSERT OR IGNORE INTO author_works_seen (author_id, work_key) VALUES (?, ?)`, authorID, k); err != nil {
+					`INSERT INTO author_works_seen (author_id, work_key) VALUES (?, ?) ON CONFLICT DO NOTHING`, authorID, k); err != nil {
 					return err
 				}
 			}
@@ -114,7 +114,7 @@ func (r *Repo) markSeen(ctx context.Context, authorID int64, works []metadata.Bo
 		if !stamp {
 			return nil
 		}
-		_, err := tx.ExecContext(ctx, `UPDATE authors SET works_checked_at = datetime('now'), works_seeded = 1 WHERE id = ?`, authorID)
+		_, err := tx.ExecContext(ctx, `UPDATE authors SET works_checked_at = `+store.UTCNowText(tx, "")+`, works_seeded = 1 WHERE id = ?`, authorID)
 		return err
 	})
 }
@@ -123,7 +123,7 @@ func (r *Repo) markSeen(ctx context.Context, authorID int64, works []metadata.Bo
 // back to them in authorRetryDays rather than a week (or at once). It leaves
 // works_seeded alone: an author whose first look failed still gets a first look.
 func (r *Repo) stampWorksRetry(ctx context.Context, authorID int64) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE authors SET works_checked_at = datetime('now', ?) WHERE id = ?`,
+	_, err := r.db.ExecContext(ctx, `UPDATE authors SET works_checked_at = `+store.UTCNowText(r.db, "?")+` WHERE id = ?`,
 		fmt.Sprintf("-%d days", AuthorRecheckDays-authorRetryDays), authorID)
 	return err
 }
@@ -134,7 +134,7 @@ func (r *Repo) stampWorksRetry(ctx context.Context, authorID int64) error {
 func (r *Repo) authorsDueForWorks(ctx context.Context, limit int) ([]Author, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT `+authorCols+` FROM authors a
 		WHERE a.monitored = 1 AND a.monitor_new = 1 AND a.catalogue_key != ''
-		  AND (a.works_checked_at = '' OR a.works_checked_at < datetime('now', ?))
+		  AND (a.works_checked_at = '' OR a.works_checked_at < `+store.UTCNowText(r.db, "?")+`)
 		ORDER BY a.works_checked_at, a.id LIMIT ?`, fmt.Sprintf("-%d days", AuthorRecheckDays), limit)
 	if err != nil {
 		return nil, err

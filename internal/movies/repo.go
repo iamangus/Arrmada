@@ -411,13 +411,13 @@ func (r *Repo) SearchStatesFor(ctx context.Context, ids []int64) (map[int64]Sear
 // RecordSearchMiss stamps the sweep time and increments the miss counter.
 func (r *Repo) RecordSearchMiss(ctx context.Context, movieID int64) {
 	_, _ = r.q().ExecContext(ctx,
-		`UPDATE movies SET last_search_at = datetime('now'), search_misses = search_misses + 1 WHERE id = ?`, movieID)
+		`UPDATE movies SET last_search_at = `+store.UTCNowText(r.q(), "")+`, search_misses = search_misses + 1 WHERE id = ?`, movieID)
 }
 
 // ResetSearchMisses clears the backoff after a successful grab.
 func (r *Repo) ResetSearchMisses(ctx context.Context, movieID int64) {
 	_, _ = r.q().ExecContext(ctx,
-		`UPDATE movies SET last_search_at = datetime('now'), search_misses = 0 WHERE id = ?`, movieID)
+		`UPDATE movies SET last_search_at = `+store.UTCNowText(r.q(), "")+`, search_misses = 0 WHERE id = ?`, movieID)
 }
 
 // SetSearchPaced marks (or unmarks) a movie as added in bulk: the missing sweep searches
@@ -861,12 +861,18 @@ type RecentImport struct {
 // newest import first, one row per movie. It reads the activity timeline, so a library
 // scan's finds count too: they are new to the library all the same.
 func (r *Repo) RecentlyImported(ctx context.Context, days, limit int) ([]RecentImport, error) {
+	at := `CAST(strftime('%s', MAX(e.created_at)) AS INTEGER)`
+	since := `julianday(e.created_at) >= julianday('now', ?)`
+	if store.DialectOf(r.q()) == store.Postgres {
+		at = `CAST(floor(extract(epoch FROM MAX(e.created_at))) AS bigint)`
+		since = `e.created_at >= ` + store.UTCNowTimestamp(r.q(), "?")
+	}
 	rows, err := r.q().QueryContext(ctx, `
 SELECT m.tmdb_id, m.title, m.year, m.overview, m.poster_url,
-       CAST(strftime('%s', MAX(e.created_at)) AS INTEGER) AS at
+       `+at+` AS at
   FROM movie_events e JOIN movies m ON m.id = e.movie_id
  WHERE e.event = 'imported' AND m.has_file = 1 AND m.tmdb_id > 0
-   AND julianday(e.created_at) >= julianday('now', ?)
+   AND `+since+`
  GROUP BY m.id
  ORDER BY at DESC, m.id DESC
  LIMIT ?`, "-"+strconv.Itoa(days)+" days", limit)

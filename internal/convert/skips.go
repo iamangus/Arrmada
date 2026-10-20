@@ -141,10 +141,10 @@ func (st *skipStore) recordAt(ctx context.Context, key, kind, reason string, ret
 	}
 	_, _ = st.db.ExecContext(ctx,
 		`INSERT INTO convert_skips (item_key, kind, reason, permanent, retry_after, attempts, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+		 VALUES (?, ?, ?, ?, ?, ?, `+store.UTCNowText(st.db, "")+`)
 		 ON CONFLICT(item_key) DO UPDATE SET
 		   kind = excluded.kind, reason = excluded.reason, permanent = excluded.permanent,
-		   retry_after = excluded.retry_after, attempts = excluded.attempts, updated_at = datetime('now')`,
+		   retry_after = excluded.retry_after, attempts = excluded.attempts, updated_at = excluded.updated_at`,
 		key, kind, reason, perm, retry, attempts)
 	return attempts
 }

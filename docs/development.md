@@ -61,6 +61,9 @@ SQLite/PostgreSQL tests for book edits and viewing-group triggers. Concurrent vi
 inserts are checked against an independent window-function calculation.
 Authentication, sessions, personal API keys, account merging, configuration
 repositories and persisted jobs have real PostgreSQL integration coverage too.
+Repository coverage also checks duplicate episode refreshes preserving library state,
+book freshness and alias inserts, acquisition expiry, recent imports, outbox retry
+deduplication, and audiobook rename identity (paired with SQLite).
 
 Repository constructors accept `store.Pool`; multi-step writes use
 `store.WithTx` and its dialect-aware `store.Transaction`. Architecture tests
@@ -68,6 +71,8 @@ reject concrete driver pools/transactions and `LastInsertId` in production
 repositories. Use `store.InsertID` for inserts or explicit `RETURNING` for an
 upsert that must return the updated row. The initial PostgreSQL writer policy
 is documented in [the migration notes](../internal/store/postgres/README.md).
+SQL date expressions distinguish UTC text columns (`store.UTCNowText`) from native
+timestamp columns (`store.UTCNowTimestamp`); interval modifiers are bound values.
 
 Without the environment variable the real-server tests explicitly skip; CI supplies
 disposable PostgreSQL 16, 17 and 18 services so they must run there. This does not yet establish

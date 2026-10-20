@@ -1256,8 +1256,8 @@ func (c *Coordinator) recordImportedHash(ctx context.Context, hash, title string
 		return
 	}
 	_, _ = c.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO imports (download_hash, source_path, target_path, title, size_bytes)
-		 VALUES (?, '', '', ?, ?)`,
+		`INSERT INTO imports (download_hash, source_path, target_path, title, size_bytes)
+		 VALUES (?, '', '', ?, ?) ON CONFLICT DO NOTHING`,
 		hash, title, size)
 }
 

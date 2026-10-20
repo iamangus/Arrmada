@@ -315,7 +315,7 @@ func (s *Service) Update(ctx context.Context, id int64, c Connection) error {
 func writeEvents(ctx context.Context, tx *store.Transaction, id int64, events []string) error {
 	for _, key := range events {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT OR IGNORE INTO notification_subscriptions (connection_id, event_key) VALUES (?, ?)`, id, key); err != nil {
+			`INSERT INTO notification_subscriptions (connection_id, event_key) VALUES (?, ?) ON CONFLICT DO NOTHING`, id, key); err != nil {
 			return err
 		}
 	}

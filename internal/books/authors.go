@@ -528,8 +528,8 @@ func (s *Service) SetCatalogueKey(ctx context.Context, id int64, key string) (in
 			// The release check's record of this row's works goes with its books (the
 			// delete below would cascade it away), and the next check of the row that
 			// stays is a first look: its record now mixes two rows' catalogues.
-			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO author_works_seen (author_id, work_key, first_seen)
-				SELECT ?, work_key, first_seen FROM author_works_seen WHERE author_id = ?`, other, id); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO author_works_seen (author_id, work_key, first_seen)
+				SELECT ?, work_key, first_seen FROM author_works_seen WHERE author_id = ? ON CONFLICT DO NOTHING`, other, id); err != nil {
 				return err
 			}
 			// Following either row means following the person.

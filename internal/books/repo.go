@@ -153,13 +153,13 @@ func (r *Repo) SearchState(ctx context.Context, bookID int64) (lastSearchAt stri
 // RecordSearchMiss stamps the sweep time and increments the miss counter.
 func (r *Repo) RecordSearchMiss(ctx context.Context, bookID int64) {
 	_, _ = r.db.ExecContext(ctx,
-		`UPDATE books SET last_search_at = datetime('now'), search_misses = search_misses + 1 WHERE id = ?`, bookID)
+		`UPDATE books SET last_search_at = CURRENT_TIMESTAMP, search_misses = search_misses + 1 WHERE id = ?`, bookID)
 }
 
 // ResetSearchMisses clears the backoff after a successful grab.
 func (r *Repo) ResetSearchMisses(ctx context.Context, bookID int64) {
 	_, _ = r.db.ExecContext(ctx,
-		`UPDATE books SET last_search_at = datetime('now'), search_misses = 0 WHERE id = ?`, bookID)
+		`UPDATE books SET last_search_at = CURRENT_TIMESTAMP, search_misses = 0 WHERE id = ?`, bookID)
 }
 
 // SetSeries records the series a book belongs to and its position in it. Learned from the

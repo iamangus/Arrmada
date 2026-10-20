@@ -333,7 +333,7 @@ func (s *Service) loadProfiles(ctx context.Context, db store.Pool) (*profileConf
 	if len(profiles) == 0 || !profiles[0].IsDefault {
 		// First use: the default profile is the kept languages as they were.
 		items, _ := json.Marshal(plainItems(s.settingsLanguages(ctx)))
-		if _, err := db.ExecContext(ctx, `INSERT OR IGNORE INTO subtitle_profiles (name, items_json, is_default) VALUES ('Default', ?, 1)`, string(items)); err != nil {
+		if _, err := db.ExecContext(ctx, `INSERT INTO subtitle_profiles (name, items_json, is_default) VALUES ('Default', ?, 1) ON CONFLICT DO NOTHING`, string(items)); err != nil {
 			return nil, err
 		}
 		if profiles, err = read(); err != nil {

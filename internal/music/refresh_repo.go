@@ -59,7 +59,7 @@ func (r *Repo) SeenReleaseGroups(ctx context.Context, artistID int64) (map[strin
 // showed them as looked at.
 func (r *Repo) MarkSeen(ctx context.Context, artistID int64, mbids []string, scopes []string) error {
 	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
-		stmt, err := tx.PrepareContext(ctx, `INSERT OR IGNORE INTO music_rg_seen (artist_id, mbid) VALUES (?, ?)`)
+		stmt, err := tx.PrepareContext(ctx, `INSERT INTO music_rg_seen (artist_id, mbid) VALUES (?, ?) ON CONFLICT DO NOTHING`)
 		if err != nil {
 			return err
 		}
@@ -134,8 +134,8 @@ func (r *Repo) RepointAlbum(ctx context.Context, albumID int64, oldMBID, newMBID
 		if err := affected(res, err); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO music_external_ids (entity_type, entity_id, source, value)
-			VALUES ('album', ?, 'musicbrainz_old', ?)`, albumID, oldMBID)
+		_, err = tx.ExecContext(ctx, `INSERT INTO music_external_ids (entity_type, entity_id, source, value)
+			VALUES ('album', ?, 'musicbrainz_old', ?) ON CONFLICT DO NOTHING`, albumID, oldMBID)
 		return err
 	})
 }
@@ -162,8 +162,8 @@ func (r *Repo) RepointArtist(ctx context.Context, artistID int64, oldMBID, newMB
 			newMBID, oldMBID, newMBID); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO music_external_ids (entity_type, entity_id, source, value)
-			VALUES ('artist', ?, 'musicbrainz_old', ?)`, artistID, oldMBID)
+		_, err = tx.ExecContext(ctx, `INSERT INTO music_external_ids (entity_type, entity_id, source, value)
+			VALUES ('artist', ?, 'musicbrainz_old', ?) ON CONFLICT DO NOTHING`, artistID, oldMBID)
 		return err
 	})
 }

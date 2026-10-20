@@ -45,14 +45,23 @@ func (s *Service) RepointEdition(ctx context.Context, bookID, versionID int64, k
 			return err
 		}
 		for _, m := range moves {
-			// OR REPLACE: a stale row already at the new path (a file that was there once)
-			// gives way to the details of the file that's there now.
-			if _, err := tx.ExecContext(ctx, `UPDATE OR REPLACE audio_file_meta SET path = ? WHERE path = ?`, m.To, m.From); err != nil {
+			if m.From == m.To {
+				continue
+			}
+			// A stale destination gives way only when the source metadata exists.
+			// Delete then update under the writer lock retains the source's ino,
+			// matching SQLite's former UPDATE OR REPLACE behavior on both engines.
+			if _, err := tx.ExecContext(ctx, `DELETE FROM audio_file_meta WHERE path = ?
+				AND EXISTS (SELECT 1 FROM audio_file_meta source WHERE source.path = ?)`, m.To, m.From); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE audio_file_meta SET path = ? WHERE path = ?`, m.To, m.From); err != nil {
 				return err
 			}
 		}
+		now := time.Now().UnixMilli()
 		if _, err := tx.ExecContext(ctx,
-			`UPDATE books SET meta_updated_at = MAX(?, meta_updated_at + 1) WHERE id = ?`, time.Now().UnixMilli(), bookID); err != nil {
+			`UPDATE books SET meta_updated_at = CASE WHEN ? > meta_updated_at THEN ? ELSE meta_updated_at + 1 END WHERE id = ?`, now, now, bookID); err != nil {
 			return err
 		}
 		if err := clearJournal(ctx, tx, bookID, versionID, kind); err != nil {
