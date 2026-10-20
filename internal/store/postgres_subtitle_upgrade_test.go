@@ -12,21 +12,7 @@ import (
 
 func TestPostgresSubtitleSequenceUpgradeBackfillsAndKeepsHighWater(t *testing.T) {
 	ctx, db, _, _ := postgresTestPool(t)
-	old := fstest.MapFS{}
-	entries, err := fs.ReadDir(postgresMigrations(), ".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".sql") || entry.Name() >= "0004_subtitle_job_ids.sql" {
-			continue
-		}
-		raw, err := fs.ReadFile(postgresMigrations(), entry.Name())
-		if err != nil {
-			t.Fatal(err)
-		}
-		old[entry.Name()] = &fstest.MapFile{Data: raw}
-	}
+	old := postgresMigrationsBeforeSubtitleIDs(t)
 	if err := migratePostgres(ctx, db, old, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +44,7 @@ func TestPostgresSubtitleSequenceUpgradeBackfillsAndKeepsHighWater(t *testing.T)
 		t.Fatalf("backfilled id was lost after pruning: %d, %v", after, err)
 	}
 	boom := errors.New("abort insert")
-	err = WithTx(ctx, db, func(tx *Transaction) error {
+	err := WithTx(ctx, db, func(tx *Transaction) error {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO subtitle_jobs (id, media_key, kind, title, priority, state, queued_at)
 			VALUES (1000, 'movie:1', 'movie', 'Rolled back', 1, 'done', 1)`); err != nil {
 			return err
@@ -75,4 +61,24 @@ func TestPostgresSubtitleSequenceUpgradeBackfillsAndKeepsHighWater(t *testing.T)
 	if err := db.QueryRowContext(ctx, `SELECT pg_catalog.pg_sequence_last_value(pg_catalog.pg_get_serial_sequence('subtitle_jobs', 'id')::regclass)`).Scan(&after); err != nil || after != 1000 {
 		t.Fatalf("PostgreSQL identity rollback gap was reused: %d, %v", after, err)
 	}
+}
+
+func postgresMigrationsBeforeSubtitleIDs(t *testing.T) fs.FS {
+	t.Helper()
+	old := fstest.MapFS{}
+	entries, err := fs.ReadDir(postgresMigrations(), ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".sql") || entry.Name() >= "0004_subtitle_job_ids.sql" {
+			continue
+		}
+		raw, err := fs.ReadFile(postgresMigrations(), entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		old[entry.Name()] = &fstest.MapFile{Data: raw}
+	}
+	return old
 }

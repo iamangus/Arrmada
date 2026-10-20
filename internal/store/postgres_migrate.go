@@ -152,6 +152,13 @@ func migratePostgres(ctx context.Context, db *Database, migrations fs.FS, before
 		return err
 	}
 	defer release()
+	return migratePostgresLocked(ctx, conn, migrations, before)
+}
+
+// migratePostgresLocked uses a lifecycle owner's already locked connection.
+// Reacquiring the lock through a different connection would deadlock/reject the
+// owner's own upgrade. Never call this without exclusive schema ownership.
+func migratePostgresLocked(ctx context.Context, conn *sql.Conn, migrations fs.FS, before func(context.Context, []string) error) error {
 	status, err := postgresSchema(ctx, conn, migrations)
 	if err != nil {
 		return err

@@ -45,6 +45,10 @@ func (o PostgresOptions) validate() error {
 // belong to Store's lifecycle, not to a connector or individual repository.
 // In particular this never creates a schema or falls back to SQLite.
 func openPostgresPool(ctx context.Context, opt PostgresOptions) (*Database, error) {
+	return openPostgresPoolAfterConnect(ctx, opt, nil)
+}
+
+func openPostgresPoolAfterConnect(ctx context.Context, opt PostgresOptions, after func(context.Context, *pgx.Conn) error) (*Database, error) {
 	if err := opt.validate(); err != nil {
 		return nil, err
 	}
@@ -65,7 +69,22 @@ func openPostgresPool(ctx context.Context, opt PostgresOptions) (*Database, erro
 	if cfg.ConnectTimeout == 0 {
 		cfg.ConnectTimeout = 10 * time.Second
 	}
-	pool := stdlib.OpenDB(*cfg)
+	var options []stdlib.OptionOpenDB
+	if after != nil {
+		options = append(options, stdlib.OptionAfterConnect(func(ctx context.Context, conn *pgx.Conn) error {
+			if err := after(ctx, conn); err != nil {
+				// stdlib does not close a connection when AfterConnect fails.
+				// A rejected session may already hold a shared lifecycle lock;
+				// it must not leak and indefinitely fence offline recovery.
+				cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = conn.Close(cleanup)
+				return err
+			}
+			return nil
+		}))
+	}
+	pool := stdlib.OpenDB(*cfg, options...)
 	maxConns := opt.MaxConnections
 	if maxConns == 0 {
 		maxConns = 4

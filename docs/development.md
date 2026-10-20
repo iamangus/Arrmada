@@ -97,6 +97,26 @@ Committed isolation independently of shared-server defaults or URL options.
 This does not yet establish application-level PostgreSQL feature parity: runtime
 selection, backups/restores and conversion are still under development.
 
+Native archive tests additionally require `pg_dump` and `pg_restore` from
+PostgreSQL 16–18, no older than the server. Set `ARRMADA_TEST_POSTGRES_BIN` to
+their directory if they are not on PATH. An explicitly enabled PostgreSQL test
+run fails rather than silently skipping missing native clients. The current
+private archive prototype checks restricted-role schema isolation, lookalike
+schema names, complete archive decoding, private file permissions, occupied
+backup filenames and failure cleanup. It does **not** yet prove offline restore
+or conversion. Locally built clients without TLS/compression support establish
+only socket/uncompressed-archive coverage, not TLS or compressed-archive claims.
+
+Private lifecycle tests now cover single-owner admission, exclusion of upgrades
+while application connections exist, schema isolation, coordinator termination,
+in-flight transaction fencing, rejected replacement-session cleanup and heartbeat
+shutdown. Every application connection holds a shared schema lock; recovery needs
+exclusive ownership, so safety does not depend on the heartbeat winning a race.
+These primitives are not yet exposed by application startup. Native backup
+currently requires a single-host URL, no libpq service file and no encrypted-key
+`sslpassword` option; unsupported cases fail explicitly rather than silently
+dumping another target or weakening TLS settings.
+
 ## Screenshots
 
 The pictures in the README and on the website (`docs/images/*.png`) are taken from those same

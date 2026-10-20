@@ -132,9 +132,19 @@ jobs:
           cache: true
       # Setup alone uses the disposable server's administrator. The tests create
       # restricted application roles with no superuser or database-create access.
+      - name: Install native PostgreSQL clients
+        # Match the server major, rather than Ubuntu's default client (which
+        # cannot dump newer servers). Use PostgreSQL's signed apt repository.
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-${{ matrix.postgres }}
       - name: Test PostgreSQL with restricted application roles (race)
         env:
           ARRMADA_TEST_POSTGRES_ADMIN_URL: postgres://postgres:arrmada-test-only@127.0.0.1:5432/arrmada_test?sslmode=disable
+          ARRMADA_TEST_POSTGRES_BIN: /usr/lib/postgresql/${{ matrix.postgres }}/bin
         run: go test -race -timeout 10m -count=1 ./internal/store -run 'Test(Postgres|Bind|DatabaseSQLiteBoundary)'
 
   audit:
