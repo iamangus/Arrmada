@@ -81,6 +81,31 @@ func TestNativePostgresToolRedactsErrors(t *testing.T) {
 	}
 }
 
+func TestPostgresArchiveStopsBeforeDiskExhaustion(t *testing.T) {
+	previous := freeSpace
+	t.Cleanup(func() { freeSpace = previous })
+	probes := 0
+	freeSpace = func(string) (diskspace.Usage, bool) {
+		probes++
+		if probes == 1 {
+			return diskspace.Usage{FreeBytes: 32 * 1024 * 1024}, true
+		}
+		return diskspace.Usage{FreeBytes: postgresBackupReserve}, true
+	}
+	var output bytes.Buffer
+	w := &postgresArchiveDiskWriter{w: &output, dir: t.TempDir()}
+	block := make([]byte, 1024*1024)
+	if _, err := w.Write(block); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(block); !errors.Is(err, ErrNoSpace) {
+		t.Fatalf("streaming archive exhausted its reserve: %v", err)
+	}
+	if output.Len() != len(block) {
+		t.Fatal("archive kept writing after the free-space guard failed")
+	}
+}
+
 func archiveTestTools(t *testing.T) postgresArchiveTools {
 	t.Helper()
 	bin := os.Getenv("ARRMADA_TEST_POSTGRES_BIN")

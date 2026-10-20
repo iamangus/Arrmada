@@ -19,7 +19,7 @@ func queueDB(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	return st.DB()
+	return st.DB().(*sql.DB)
 }
 
 // bootQueue is a Service as NewService leaves it over db: the saved queue loaded. Calling

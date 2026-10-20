@@ -24,7 +24,7 @@ import (
 // Use a build matching the backup's migration history. Upgrade after recovery,
 // not while interpreting an archive made by an unknown/older schema version.
 func RestorePostgres(ctx context.Context, opt PostgresOptions, archive, scratchDir string) error {
-	return restorePostgres(ctx, opt, archive, scratchDir, defaultPostgresArchiveTools())
+	return restorePostgres(ctx, opt, archive, scratchDir, postgresTools(opt))
 }
 
 func restorePostgres(ctx context.Context, opt PostgresOptions, archive, scratchDir string, tools postgresArchiveTools) error {
@@ -64,8 +64,12 @@ func restorePostgres(ctx context.Context, opt PostgresOptions, archive, scratchD
 	defer decoded.Close()
 	// Decoding is deliberately offline: no database URL, service, role, native
 	// connection or native restore privilege is supplied to pg_restore.
-	if err := nativePostgresTool(ctx, tools.restore, []string{}, decoded,
+	writer := &postgresArchiveDiskWriter{w: decoded, dir: scratchDir}
+	if err := nativePostgresTool(ctx, tools.restore, []string{}, writer,
 		"--data-only", "--no-owner", "--no-privileges", "--file=-", archive); err != nil {
+		if writer.err != nil {
+			return writer.err
+		}
 		return fmt.Errorf("decode PostgreSQL recovery archive: %w", err)
 	}
 	if _, err := decoded.Seek(0, io.SeekStart); err != nil {

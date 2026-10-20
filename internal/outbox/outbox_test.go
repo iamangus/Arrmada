@@ -29,7 +29,7 @@ func testBox(t *testing.T) (*Outbox, *sql.DB, *time.Time) {
 	clock := time.Unix(1_800_000_000, 0)
 	o := New(st.DB(), quietLog())
 	o.now = func() time.Time { return clock }
-	return o, st.DB(), &clock
+	return o, st.DB().(*sql.DB), &clock
 }
 
 type rowState struct {

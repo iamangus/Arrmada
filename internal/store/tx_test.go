@@ -17,7 +17,7 @@ func txTestDB(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	db := st.DB()
+	db := st.db
 	for _, q := range []string{
 		`CREATE TABLE tx_counter (id INTEGER PRIMARY KEY, n INTEGER NOT NULL)`,
 		`INSERT INTO tx_counter (id, n) VALUES (1, 0)`,
@@ -188,7 +188,7 @@ func TestWithTxGivesUpWhileLocked(t *testing.T) {
 	}
 	defer func() { _ = st.Close() }()
 	ctx := context.Background()
-	holder, err := st.DB().BeginTx(ctx, nil) // IMMEDIATE: takes the write lock now
+	holder, err := st.db.BeginTx(ctx, nil) // IMMEDIATE: takes the write lock now
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -141,10 +141,18 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
           sudo apt-get install -y postgresql-client-${{ matrix.postgres }}
+      # HTTP API integration tests compile the embedded UI package. UI assets
+      # themselves are built/tested in the web job; these tests exercise JSON
+      # routes and use only a placeholder for go:embed.
+      - name: Placeholder web UI for PostgreSQL HTTP API tests
+        run: mkdir -p internal/webui/dist && echo '<!doctype html>' > internal/webui/dist/index.html
+      - name: Build server for real PostgreSQL startup/shutdown smoke test
+        run: go build -o /tmp/arrmada-postgres-test ./cmd/arrmada
       - name: Test PostgreSQL with restricted application roles (race)
         env:
           ARRMADA_TEST_POSTGRES_ADMIN_URL: postgres://postgres:arrmada-test-only@127.0.0.1:5432/arrmada_test?sslmode=disable
           ARRMADA_TEST_POSTGRES_BIN: /usr/lib/postgresql/${{ matrix.postgres }}/bin
+          ARRMADA_TEST_BINARY: /tmp/arrmada-postgres-test
         run: go test -race -timeout 10m -count=1 ./internal/store -run 'Test(Postgres|Bind|DatabaseSQLiteBoundary)'
 
   audit:

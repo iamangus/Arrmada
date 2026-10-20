@@ -95,8 +95,11 @@ disposable PostgreSQL 16, 17 and 18 services so they must run there. The connect
 rejects server versions outside that range, requires a UTF8 database and pins
 UTF8 client encoding, UTC, ISO/YMD dates and Read
 Committed isolation independently of shared-server defaults or URL options.
-This does not yet establish application-level PostgreSQL feature parity: runtime
-selection, built-in backups and conversion are still under development.
+Runtime startup now selects an explicit backend, and the backup service/HTTP API
+exercise native snapshots, metadata, downloads and offline-only restore
+capabilities with PostgreSQL. See [PostgreSQL operations](postgresql.md).
+Conversion is still under development; full application parity remains a
+completion claim to establish, not something inferred from repository coverage.
 
 Native archive tests additionally require `pg_dump` and `pg_restore` from
 PostgreSQL 16–18, no older than the server. Set `ARRMADA_TEST_POSTGRES_BIN` to
@@ -120,15 +123,14 @@ while application connections exist, schema isolation, coordinator termination,
 in-flight transaction fencing, rejected replacement-session cleanup and heartbeat
 shutdown. Every application connection holds a shared schema lock; recovery needs
 exclusive ownership, so safety does not depend on the heartbeat winning a race.
-These primitives are not yet exposed by application startup. Native backup
+Application startup now uses these primitives. Native backup
 currently requires a single-host URL, no libpq service file and no encrypted-key
 `sslpassword` option; unsupported cases fail explicitly rather than silently
 dumping another target or weakening TLS settings.
 
 ### Offline PostgreSQL recovery
 
-The maintenance command below is available while runtime backend wiring is still
-being completed. It accepts native custom-format COPY archives, not SQL scripts,
+The maintenance command below accepts native custom-format COPY archives, not SQL scripts,
 SQLite files, directory archives or database-wide dumps. Recovery requires a
 build with **exactly matching PostgreSQL migration history**. To roll back, use
 the matching old build and its pre-upgrade archive; recover first, then upgrade.
@@ -157,8 +159,7 @@ schema is refused, including an existing Arrmada installation. There is no
 `DROP ... CASCADE`, privilege escalation or in-app PostgreSQL restore.
 
 After success, update backend configuration to the recovered schema before
-starting Arrmada (runtime wiring is not yet available on this development
-branch). A lost connection during COMMIT has the usual remote-transaction
+starting Arrmada. A lost connection during COMMIT has the usual remote-transaction
 ambiguity: inspect the destination before retrying. An occupied schema must never
 be cleared automatically. Database recovery does not restore media, covers,
 downloads, models, certificates or other filesystem data under the data directory.

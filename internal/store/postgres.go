@@ -16,9 +16,11 @@ import (
 // PostgresOptions describes access to a pre-provisioned schema, not permission
 // to administer its database. URL is secret and must never be logged.
 type PostgresOptions struct {
-	URL            string
+	URL            string `json:"-"`
 	Schema         string
 	MaxConnections int
+	// BinDir optionally selects a directory containing pg_dump/pg_restore.
+	BinDir string
 }
 
 var postgresSchemaName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
@@ -35,8 +37,8 @@ func (o PostgresOptions) validate() error {
 		u.Hostname() == "" || u.User == nil || u.User.Username() == "" || strings.Trim(u.Path, "/") == "" || u.Fragment != "" {
 		return errors.New("PostgreSQL requires a postgres:// URL with an explicit host, user and database")
 	}
-	if o.MaxConnections < 0 {
-		return errors.New("PostgreSQL maximum connections must not be negative")
+	if o.MaxConnections < 0 || o.MaxConnections > 100 {
+		return errors.New("PostgreSQL maximum connections must be 0 (default) or between 1 and 100")
 	}
 	return nil
 }

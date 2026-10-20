@@ -37,7 +37,7 @@ func ident(name string) string {
 
 func literal(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
-func emitPostgres(w io.Writer, db *sql.DB) error {
+func emitPostgres(w io.Writer, db store.Pool) error {
 	rows, err := db.Query(`SELECT type, name, tbl_name, sql FROM sqlite_master
 		WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND name != 'schema_migrations'
 		ORDER BY type, name`)
@@ -120,7 +120,7 @@ AS $$ SELECT translate(value, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrs
 	return err
 }
 
-func tableColumns(db *sql.DB, table string) ([]column, error) {
+func tableColumns(db store.Pool, table string) ([]column, error) {
 	rows, err := db.Query(`SELECT name, type, "notnull", dflt_value, pk FROM pragma_table_info(?) ORDER BY cid`, table)
 	if err != nil {
 		return nil, err
@@ -137,7 +137,7 @@ func tableColumns(db *sql.DB, table string) ([]column, error) {
 	return cols, rows.Err()
 }
 
-func emitTable(out *strings.Builder, db *sql.DB, o schemaObject, cols []column) error {
+func emitTable(out *strings.Builder, db store.Pool, o schemaObject, cols []column) error {
 	var pk []string
 	for pos := 1; ; pos++ {
 		found := false
@@ -231,7 +231,7 @@ func emitTable(out *strings.Builder, db *sql.DB, o schemaObject, cols []column) 
 	return nil
 }
 
-func emitForeignKeys(out *strings.Builder, db *sql.DB, table string) error {
+func emitForeignKeys(out *strings.Builder, db store.Pool, table string) error {
 	rows, err := db.Query(`SELECT id, seq, "table", "from", "to", on_update, on_delete FROM pragma_foreign_key_list(?) ORDER BY id, seq`, table)
 	if err != nil {
 		return err
@@ -253,7 +253,7 @@ func emitForeignKeys(out *strings.Builder, db *sql.DB, table string) error {
 	return rows.Err()
 }
 
-func emitSeeds(out *strings.Builder, db *sql.DB, table string, cols []column) error {
+func emitSeeds(out *strings.Builder, db store.Pool, table string, cols []column) error {
 	var names []string
 	var selected []column
 	var identity string

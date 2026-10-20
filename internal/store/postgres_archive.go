@@ -26,10 +26,21 @@ func defaultPostgresArchiveTools() postgresArchiveTools {
 	return postgresArchiveTools{dump: "pg_dump", restore: "pg_restore"}
 }
 
+func postgresTools(opt PostgresOptions) postgresArchiveTools {
+	if opt.BinDir == "" {
+		return defaultPostgresArchiveTools()
+	}
+	return postgresArchiveTools{dump: filepath.Join(opt.BinDir, "pg_dump"), restore: filepath.Join(opt.BinDir, "pg_restore")}
+}
+
 // postgresSnapshotLocked is also usable by the pre-migration backup callback:
 // its caller already owns the schema lock, so it must not try to acquire it on
 // another pooled connection. This is not yet a public backup/restore API.
 func postgresSnapshotLocked(ctx context.Context, db *Database, opt PostgresOptions, tools postgresArchiveTools, dst string) error {
+	return postgresSnapshotLockedChecked(ctx, db, opt, tools, dst, nil)
+}
+
+func postgresSnapshotLockedChecked(ctx context.Context, db *Database, opt PostgresOptions, tools postgresArchiveTools, dst string, guard func() error) error {
 	var schema string
 	var version int
 	if db.dialect != Postgres {
@@ -63,7 +74,7 @@ func postgresSnapshotLocked(ctx context.Context, db *Database, opt PostgresOptio
 	if usage, ok := freeSpace(filepath.Dir(dst)); ok && usage.FreeBytes < need {
 		return fmt.Errorf("%w: PostgreSQL backup needs about %s", ErrNoSpace, formatBytes(need))
 	}
-	return postgresArchiveTo(ctx, opt, tools, dst)
+	return postgresArchiveToChecked(ctx, opt, tools, dst, guard)
 }
 
 // postgresClientEnv passes connection secrets through the child's environment,
@@ -163,6 +174,10 @@ func nativePostgresTool(ctx context.Context, path string, env []string, out io.W
 // pg_dump itself takes a consistent MVCC snapshot. A final backup name is never
 // published on failure, and an existing destination is never overwritten.
 func postgresArchiveTo(ctx context.Context, opt PostgresOptions, tools postgresArchiveTools, dst string) error {
+	return postgresArchiveToChecked(ctx, opt, tools, dst, nil)
+}
+
+func postgresArchiveToChecked(ctx context.Context, opt PostgresOptions, tools postgresArchiveTools, dst string, guard func() error) error {
 	env, err := postgresClientEnv(opt)
 	if err != nil {
 		return err
@@ -186,7 +201,11 @@ func postgresArchiveTo(ctx context.Context, opt PostgresOptions, tools postgresA
 	args := []string{"--no-password", "--format=custom", "--compress=0", "--strict-names",
 		"--schema=" + `"` + opt.Schema + `"`, "--no-owner", "--no-privileges",
 		"--no-tablespaces", "--no-security-labels", "--no-comments"}
-	if err := nativePostgresTool(ctx, tools.dump, env, f, args...); err != nil {
+	writer := &postgresArchiveDiskWriter{w: f, dir: dir}
+	if err := nativePostgresTool(ctx, tools.dump, env, writer, args...); err != nil {
+		if writer.err != nil {
+			return writer.err
+		}
 		return fmt.Errorf("create PostgreSQL backup: %w", err)
 	}
 	if err := f.Sync(); err != nil {
@@ -201,6 +220,13 @@ func postgresArchiveTo(ctx context.Context, opt PostgresOptions, tools postgresA
 		"--no-owner", "--no-privileges", "--file=-", f.Name()); err != nil {
 		return fmt.Errorf("verify PostgreSQL backup archive: %w", err)
 	}
+	// A lost coordination session during the native dump must not publish a
+	// backup that may have overlapped an upgrade. No reconnect is allowed.
+	if guard != nil {
+		if err := guard(); err != nil {
+			return errors.New("PostgreSQL schema protection was lost during backup; no backup was published")
+		}
+	}
 	// Hard-link publication is atomic and exclusive on the same filesystem.
 	// Unlike Rename, it cannot replace a backup that appeared during the dump.
 	if err := os.Link(f.Name(), dst); err != nil {
@@ -208,6 +234,37 @@ func postgresArchiveTo(ctx context.Context, opt PostgresOptions, tools postgresA
 	}
 	syncDir(dir)
 	return nil
+}
+
+const postgresBackupReserve = 16 * 1024 * 1024
+
+// Relation-size estimates cannot bound native COPY output: TOAST compression
+// and bytea hex encoding can expand it substantially. Recheck free space while
+// streaming, retaining room for the application's own filesystem state/logs.
+type postgresArchiveDiskWriter struct {
+	w          io.Writer
+	dir        string
+	untilCheck int
+	err        error
+}
+
+func (w *postgresArchiveDiskWriter) Write(p []byte) (int, error) {
+	if w.err != nil {
+		return 0, w.err
+	}
+	if w.untilCheck <= 0 || len(p) >= w.untilCheck {
+		if u, ok := freeSpace(w.dir); ok && u.FreeBytes < postgresBackupReserve+uint64(max(len(p), 1024*1024)) {
+			w.err = ErrNoSpace
+			return 0, w.err
+		}
+		w.untilCheck = 1024 * 1024
+	}
+	n, err := w.w.Write(p)
+	w.untilCheck -= n
+	if err != nil {
+		w.err = err
+	}
+	return n, err
 }
 
 // postgresSchemaBytes estimates only this schema's stored relations, not the

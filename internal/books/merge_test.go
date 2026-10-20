@@ -50,7 +50,7 @@ func newMergeFixture(t *testing.T) *mergeFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	db := st.DB()
+	db := st.DB().(*sql.DB)
 	res, err := db.Exec(`INSERT INTO users (username, password_hash, role) VALUES ('listener', 'x', 'requester')`)
 	if err != nil {
 		t.Fatal(err)

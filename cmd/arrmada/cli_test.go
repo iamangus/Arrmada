@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/tristenlammi/arrmada/internal/buildinfo"
+	"github.com/tristenlammi/arrmada/internal/config"
 	"github.com/tristenlammi/arrmada/internal/store"
 )
 
@@ -81,6 +82,31 @@ func TestCLIPostgresRestoreUsageAndSecretRedaction(t *testing.T) {
 	}
 }
 
+func TestConfiguredPostgresFailureNeverFallsBackToSQLite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "arrmada.db")
+	original := []byte("untouched SQLite source")
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{DataDir: dir, DatabaseBackend: "postgres", PostgresSchema: "arrmada", PostgresURL: "postgres://app:do-not-log@localhost/shared?sslmode=invalid"}
+	if st, err := openConfiguredStore(cfg, nil); err == nil || strings.Contains(err.Error(), "do-not-log") {
+		if st != nil {
+			_ = st.Close()
+		}
+		t.Fatalf("invalid PostgreSQL configuration accepted or exposed secret: %v", err)
+	}
+	cfg.AllowNewerSchema = true
+	if st, err := openMaintenanceStore(context.Background(), cfg); err == nil {
+		_ = st.Close()
+		t.Fatal("PostgreSQL maintenance accepted SQLite schema override")
+	}
+	actual, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(actual, original) {
+		t.Fatal("failed PostgreSQL selection modified SQLite")
+	}
+}
+
 func TestCLIVersion(t *testing.T) {
 	code, stdout, _ := runTestCLI(t, "", "version")
 	if code != exitOK {
@@ -107,7 +133,7 @@ func TestCLIBackupWhileOpen(t *testing.T) {
 	if _, err := live.DB().ExecContext(ctx, `INSERT INTO settings (key, value) VALUES ('committed', 'yes')`); err != nil {
 		t.Fatal(err)
 	}
-	tx, err := live.DB().BeginTx(ctx, nil)
+	tx, err := live.DB().(*sql.DB).BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
