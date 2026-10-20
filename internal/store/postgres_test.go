@@ -119,6 +119,7 @@ func postgresFixture(t *testing.T) (context.Context, *pgx.Conn, PostgresOptions,
 	q.Set("search_path", other+",public")
 	q.Set("timezone", "Pacific/Honolulu")
 	q.Set("standard_conforming_strings", "off")
+	q.Set("default_transaction_isolation", "serializable")
 	u.RawQuery = q.Encode()
 	return ctx, admin, PostgresOptions{URL: u.String(), Schema: name, MaxConnections: 2}, other
 }
@@ -167,9 +168,9 @@ func TestPostgresPoolRestrictedRoleAndSchema(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer conn.Close()
-		var schema, zone, conforming string
-		if err := conn.QueryRowContext(ctx, `SELECT current_schema(), current_setting('TimeZone'), current_setting('standard_conforming_strings')`).Scan(&schema, &zone, &conforming); err != nil || schema != opt.Schema || zone != "UTC" || conforming != "on" {
-			t.Fatalf("session = %q, %q, %q, %v", schema, zone, conforming, err)
+		var schema, zone, conforming, isolation string
+		if err := conn.QueryRowContext(ctx, `SELECT current_schema(), current_setting('TimeZone'), current_setting('standard_conforming_strings'), current_setting('transaction_isolation')`).Scan(&schema, &zone, &conforming, &isolation); err != nil || schema != opt.Schema || zone != "UTC" || conforming != "on" || isolation != "read committed" {
+			t.Fatalf("session = %q, %q, %q, %q, %v", schema, zone, conforming, isolation, err)
 		}
 		var superuser, createdb, createrole bool
 		if err := conn.QueryRowContext(ctx, `SELECT rolsuper, rolcreatedb, rolcreaterole FROM pg_catalog.pg_roles WHERE rolname = current_user`).Scan(&superuser, &createdb, &createrole); err != nil || superuser || createdb || createrole {

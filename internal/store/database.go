@@ -15,6 +15,31 @@ const (
 	Postgres Dialect = "postgres"
 )
 
+// Pool is the repository-facing database capability. A native SQLite pool still
+// satisfies it, keeping existing callers and fixtures source-compatible; the
+// PostgreSQL implementation must be Database so parameter binding is not lost.
+// Transactions are deliberately started through WithTx, not through this API.
+type Pool interface {
+	Execer
+	Exec(string, ...any) (sql.Result, error)
+	Query(string, ...any) (*sql.Rows, error)
+	QueryRow(string, ...any) *sql.Row
+	Prepare(string) (*sql.Stmt, error)
+	PrepareContext(context.Context, string) (*sql.Stmt, error)
+	PingContext(context.Context) error
+	Stats() sql.DBStats
+	Close() error
+}
+
+// DialectOf identifies the explicit query boundary. Native pools are retained
+// only for SQLite callers; PostgreSQL pools are never exposed without binding.
+func DialectOf(q Execer) Dialect {
+	if q, ok := q.(interface{ Dialect() Dialect }); ok {
+		return q.Dialect()
+	}
+	return SQLite
+}
+
 // Database is the query boundary shared by repositories. Keeping the underlying
 // pool private prevents a query from accidentally bypassing parameter binding.
 // Rows, results and errors remain database/sql values.
@@ -99,6 +124,8 @@ func (tx *Transaction) PrepareContext(ctx context.Context, query string) (*sql.S
 }
 
 var (
+	_ Pool   = (*Database)(nil)
+	_ Pool   = (*sql.DB)(nil)
 	_ Execer = (*Database)(nil)
 	_ Execer = (*Transaction)(nil)
 )

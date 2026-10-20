@@ -20,7 +20,7 @@ import (
 // A nil store, or one without a database, keeps nothing: the queue works in memory alone
 // (the unit tests that need no database).
 type jobStore struct {
-	db *sql.DB
+	db store.Pool
 	// mu orders the writes. A caller takes it before releasing Service.mu (see
 	// Service.unlockAndPersist), so rows change in the same order the queue did, without
 	// holding the queue's lock over disk I/O.
@@ -38,7 +38,7 @@ const (
 // back into the queue.
 const interruptedNote = "interrupted by restart"
 
-func newJobStore(db *sql.DB) *jobStore { return &jobStore{db: db} }
+func newJobStore(db store.Pool) *jobStore { return &jobStore{db: db} }
 
 func (st *jobStore) ok() bool { return st != nil && st.db != nil }
 
@@ -148,7 +148,7 @@ func (st *jobStore) write(ctx context.Context, inserts, saves []Job) (skipped in
 	if !st.ok() || len(inserts)+len(saves) == 0 {
 		return 0, nil
 	}
-	err = store.WithTx(ctx, st.db, func(tx *sql.Tx) error {
+	err = store.WithTx(ctx, st.db, func(tx *store.Transaction) error {
 		skipped = 0
 		if len(inserts) > 0 {
 			ins, err := tx.PrepareContext(ctx, `INSERT INTO subtitle_jobs (`+jobCols+`)

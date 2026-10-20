@@ -58,7 +58,7 @@ func (r *Repo) SeenReleaseGroups(ctx context.Context, artistID int64) (map[strin
 // MarkSeen records release groups as shown for an artist, and the browses (scopes) that
 // showed them as looked at.
 func (r *Repo) MarkSeen(ctx context.Context, artistID int64, mbids []string, scopes []string) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		stmt, err := tx.PrepareContext(ctx, `INSERT OR IGNORE INTO music_rg_seen (artist_id, mbid) VALUES (?, ?)`)
 		if err != nil {
 			return err
@@ -122,7 +122,7 @@ var ErrMBIDTaken = errors.New("another row already has that MusicBrainz id")
 // keeping the old one as a musicbrainz_old external id. Everything else stays: files,
 // editions, monitoring, search history.
 func (r *Repo) RepointAlbum(ctx context.Context, albumID int64, oldMBID, newMBID string) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		var n int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM albums WHERE mbid = ? AND id != ?`, newMBID, albumID).Scan(&n); err != nil {
 			return err
@@ -144,7 +144,7 @@ func (r *Repo) RepointAlbum(ctx context.Context, albumID int64, oldMBID, newMBID
 // one as a musicbrainz_old external id. Its own one-name credit follows (its key is the
 // MBID), so albums found later still take the artist's credit.
 func (r *Repo) RepointArtist(ctx context.Context, artistID int64, oldMBID, newMBID string) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		var n int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM artists WHERE mbid = ? AND id != ?`, newMBID, artistID).Scan(&n); err != nil {
 			return err
@@ -231,7 +231,7 @@ func (r *Repo) PendingSingles(ctx context.Context, before time.Time, limit int) 
 
 // SetFound records why an album is or isn't wanted, and whether it is.
 func (r *Repo) SetFound(ctx context.Context, albumID int64, foundAs string, monitored bool) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE albums SET found_as = ?, monitored = ? WHERE id = ?`, foundAs, b2i(monitored), albumID); err != nil {
 			return err
 		}
@@ -386,7 +386,7 @@ func (r *Repo) ClearPendingSingle(ctx context.Context, albumID int64) error {
 // applyPlan carries out an apply plan in one transaction: want, unwant (album and
 // tracks, as SetAlbumMonitored does) and put singles through the asked-for check.
 func (r *Repo) applyPlan(ctx context.Context, want, unwant, singles []int64) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		set := func(ids []int64, monitored bool) error {
 			for _, id := range ids {
 				if _, err := tx.ExecContext(ctx, `UPDATE albums SET monitored = ? WHERE id = ?`, b2i(monitored), id); err != nil {

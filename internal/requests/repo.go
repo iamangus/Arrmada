@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/tristenlammi/arrmada/internal/mediaserver"
+	"github.com/tristenlammi/arrmada/internal/store"
 )
 
 // ErrNotFound is returned when a request id doesn't exist.
@@ -121,10 +122,10 @@ type Request struct {
 }
 
 // Repo persists requests in SQLite.
-type Repo struct{ db *sql.DB }
+type Repo struct{ db store.Pool }
 
 // NewRepo builds a repository over the given pool.
-func NewRepo(db *sql.DB) *Repo { return &Repo{db: db} }
+func NewRepo(db store.Pool) *Repo { return &Repo{db: db} }
 
 const cols = `id, media_type, tmdb_id, ol_key, title, author, year, poster_url, overview, status,
 	quality_profile, requested_by, requested_by_name, note, created_at, updated_at, book_id, formats, seasons, ready_at,
@@ -180,7 +181,7 @@ func nullID(id int64) any {
 
 // Create inserts a request. Returns ErrExists (wrapped) on a duplicate media.
 func (r *Repo) Create(ctx context.Context, req Request) (Request, error) {
-	res, err := r.db.ExecContext(ctx,
+	id, err := store.InsertID(ctx, r.db,
 		`INSERT INTO requests (media_type, tmdb_id, ol_key, title, author, year, poster_url, overview, status,
 			quality_profile, requested_by, requested_by_name, note, book_id, formats, seasons, rerequest, decline_reason)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -188,12 +189,11 @@ func (r *Repo) Create(ctx context.Context, req Request) (Request, error) {
 		req.QualityProfile, req.RequestedBy, req.RequestedByName, req.Note, nullID(req.BookID), req.Formats, encodeSeasons(req.Seasons),
 		req.ReRequest, req.DeclineReason)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+		if store.IsUniqueViolation(err) {
 			return Request{}, ErrExists
 		}
 		return Request{}, err
 	}
-	id, _ := res.LastInsertId()
 	return r.Get(ctx, id)
 }
 

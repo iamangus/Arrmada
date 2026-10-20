@@ -198,7 +198,7 @@ func (r *Repo) FillISBN(ctx context.Context, bookID int64, isbn string) (bool, e
 // field — what's underneath an edit, else the column — is empty, in one transaction.
 func (r *Repo) fillMatched(ctx context.Context, bookID int64, field string, vals map[string]any) (bool, error) {
 	took := false
-	err := store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	err := store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		b, err := getTx(ctx, tx, bookID)
 		if err != nil {
 			return err
@@ -245,10 +245,10 @@ func (r *Repo) SeriesSiblings(ctx context.Context, seriesName string) ([]Book, e
 }
 
 // Repo persists books in SQLite.
-type Repo struct{ db *sql.DB }
+type Repo struct{ db store.Pool }
 
 // NewRepo builds a repository over the given pool.
-func NewRepo(db *sql.DB) *Repo { return &Repo{db: db} }
+func NewRepo(db store.Pool) *Repo { return &Repo{db: db} }
 
 const cols = `id, ol_key, title, author, year, cover_url, description, subjects_json,
 	monitored, quality_profile, added_at, series_name, series_position, series_key, keep_catalogue,
@@ -388,22 +388,22 @@ func (r *Repo) Create(ctx context.Context, b Book) (Book, error) {
 	// The row and its key land together, and a key that is another book's former key
 	// is that book: adding it again would make two rows of one book.
 	var id int64
-	err := store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	err := store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		if _, taken := keyOwner(ctx, tx, b.OLKey); taken {
 			return ErrExists
 		}
-		res, err := tx.ExecContext(ctx,
+		var err error
+		id, err = store.InsertID(ctx, tx,
 			`INSERT INTO books (ol_key, title, author, year, cover_url, description, subjects_json, monitored, quality_profile, release_date)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			b.OLKey, b.Title, b.Author, b.Year, b.CoverURL, b.Description, subjectsJSON, b2i(b.Monitored), b.QualityProfile, cleanReleaseDate(b.ReleaseDate))
 		if err != nil {
 			return err
 		}
-		id, _ = res.LastInsertId()
 		return addKey(ctx, tx, b.OLKey, id, "")
 	})
 	if err != nil {
-		if errors.Is(err, ErrExists) || strings.Contains(strings.ToLower(err.Error()), "unique") {
+		if errors.Is(err, ErrExists) || store.IsUniqueViolation(err) {
 			return Book{}, ErrExists
 		}
 		return Book{}, err
@@ -432,7 +432,7 @@ func (r *Repo) SetQualityProfile(ctx context.Context, id int64, profile string) 
 // UpdateMeta refreshes a book's description/cover/subjects (from a metadata re-pull). A
 // description or tags edited by hand keep the edit, with the catalogue's underneath.
 func (r *Repo) UpdateMeta(ctx context.Context, id int64, description, coverURL string, subjects []string) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE books SET cover_url = ? WHERE id = ?`, coverURL, id); err != nil {
 			return err
 		}
@@ -516,7 +516,7 @@ func (r *Repo) ClearEdition(ctx context.Context, id int64, kind string) error {
 // Details edited by hand stay edited, with the new work's values underneath — unless
 // clearEdits: the person said the edits were for the book it was wrongly matched to.
 func (r *Repo) Rematch(ctx context.Context, id int64, b Book, keepOld, clearEdits bool) error {
-	err := store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	err := store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		if owner, taken := keyOwner(ctx, tx, b.OLKey); taken && owner != id {
 			return ErrExists
 		}
@@ -555,7 +555,7 @@ func (r *Repo) Rematch(ctx context.Context, id int64, b Book, keepOld, clearEdit
 		return addKey(ctx, tx, b.OLKey, id, "")
 	})
 	if err != nil && !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrExists) &&
-		strings.Contains(strings.ToLower(err.Error()), "unique") {
+		store.IsUniqueViolation(err) {
 		return ErrExists
 	}
 	return err

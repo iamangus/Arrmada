@@ -2,7 +2,6 @@ package series
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -206,7 +205,7 @@ func (s *Service) SyncDisplayTitles(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 	var missed []int64
-	err = store.WithTx(ctx, s.repo.db, func(tx *sql.Tx) error {
+	err = store.WithTx(ctx, s.repo.db, func(tx *store.Transaction) error {
 		missed = missed[:0]
 		for _, c := range changes {
 			done, err := storeDisplayIf(ctx, tx, c.row, c.want)

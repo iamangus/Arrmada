@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"sort"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/tristenlammi/arrmada/internal/displaytitle"
 	"github.com/tristenlammi/arrmada/internal/library"
+	"github.com/tristenlammi/arrmada/internal/store"
 )
 
 // History is one log of what Arrmada did to every title — grabs, imports, upgrades,
@@ -169,7 +169,7 @@ func (e historyEvent) cursor() eventsCursor {
 const sqliteStamp = "2006-01-02 15:04:05"
 
 // eventsFeed reads the newest events matching f across the four event tables.
-func eventsFeed(ctx context.Context, db *sql.DB, f eventsFilter) ([]historyEvent, error) {
+func eventsFeed(ctx context.Context, db store.Pool, f eventsFilter) ([]historyEvent, error) {
 	q, args := eventsFeedSQL(f)
 	if q == "" {
 		return []historyEvent{}, nil

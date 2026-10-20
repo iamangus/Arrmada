@@ -9,6 +9,8 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"github.com/tristenlammi/arrmada/internal/store"
 )
 
 // ErrSessionNotFound is returned for a session id this server never issued (or pruned).
@@ -62,13 +64,13 @@ const (
 
 // Store persists progress, sessions, history, bookmarks and the listening log.
 type Store struct {
-	db  *sql.DB
+	db  store.Pool
 	now func() time.Time
 	mu  sync.Mutex // one report at a time: read-decide-write must not interleave
 }
 
 // NewStore wraps the database.
-func NewStore(db *sql.DB) *Store { return &Store{db: db, now: time.Now} }
+func NewStore(db store.Pool) *Store { return &Store{db: db, now: time.Now} }
 
 func (s *Store) nowMs() int64 { return s.now().UnixMilli() }
 

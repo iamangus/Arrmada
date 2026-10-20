@@ -253,7 +253,7 @@ func TestEnqueueInRolledBackTxLeavesNoRow(t *testing.T) {
 	o, db, _ := testBox(t)
 	o.Register("t", "c", func(context.Context, json.RawMessage) error { return nil })
 	boom := errors.New("import write failed")
-	err := store.WithTx(context.Background(), db, func(tx *sql.Tx) error {
+	err := store.WithTx(context.Background(), db, func(tx *store.Transaction) error {
 		if err := o.Enqueue(context.Background(), tx, "t", 1, ""); err != nil {
 			return err
 		}
@@ -266,7 +266,7 @@ func TestEnqueueInRolledBackTxLeavesNoRow(t *testing.T) {
 		t.Fatalf("%d rows survived the rollback", n)
 	}
 	// And a committed one is there.
-	if err := store.WithTx(context.Background(), db, func(tx *sql.Tx) error {
+	if err := store.WithTx(context.Background(), db, func(tx *store.Transaction) error {
 		return o.Enqueue(context.Background(), tx, "t", 1, "")
 	}); err != nil {
 		t.Fatal(err)

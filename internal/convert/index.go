@@ -2,7 +2,6 @@ package convert
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,13 +12,14 @@ import (
 
 	"github.com/tristenlammi/arrmada/internal/movies"
 	"github.com/tristenlammi/arrmada/internal/safego"
+	"github.com/tristenlammi/arrmada/internal/store"
 )
 
 // libraryIndex is the persisted answer to "what's in the library and what codec is it".
 // Listing reads this table instead of walking the library and probing per request — see
 // migration 0058 for why.
 type libraryIndex struct {
-	db *sql.DB
+	db store.Pool
 	// gen counts writes, so the cached views built over the index (libcache.go) know
 	// when they're stale.
 	gen atomic.Uint64

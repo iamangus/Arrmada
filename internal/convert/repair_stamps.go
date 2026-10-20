@@ -2,7 +2,6 @@ package convert
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -35,7 +34,7 @@ var legacyStamps = []struct {
 // are written; a settings key stops it running again. The key is saved after the rows,
 // so a failure in between only means the next boot looks again, and finds nothing left
 // to change.
-func RepairCodecStamps(ctx context.Context, db *sql.DB, set *settings.Service, log *slog.Logger) (int, error) {
+func RepairCodecStamps(ctx context.Context, db store.Pool, set *settings.Service, log *slog.Logger) (int, error) {
 	if _, done := set.Lookup(codecStampRepairKey); done {
 		return 0, nil
 	}
@@ -71,7 +70,7 @@ func RepairCodecStamps(ctx context.Context, db *sql.DB, set *settings.Service, l
 		}
 	}
 
-	err := store.WithTx(ctx, db, func(tx *sql.Tx) error {
+	err := store.WithTx(ctx, db, func(tx *store.Transaction) error {
 		for _, f := range fixes {
 			if _, err := tx.ExecContext(ctx, `UPDATE `+f.table+` SET source_release = ? WHERE id = ?`, f.after, f.id); err != nil {
 				return err

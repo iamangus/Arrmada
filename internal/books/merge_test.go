@@ -374,7 +374,7 @@ type failingRekeyer struct {
 }
 
 func (r failingRekeyer) HoldReports() func() { return r.real.HoldReports() }
-func (r failingRekeyer) RekeyItemsTx(ctx context.Context, tx *sql.Tx, moves map[string]string) (listening.RekeyCounts, error) {
+func (r failingRekeyer) RekeyItemsTx(ctx context.Context, tx *store.Transaction, moves map[string]string) (listening.RekeyCounts, error) {
 	if _, err := r.real.RekeyItemsTx(ctx, tx, moves); err != nil {
 		return listening.RekeyCounts{}, err
 	}

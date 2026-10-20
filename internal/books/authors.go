@@ -278,11 +278,7 @@ func authorIDByKey(ctx context.Context, ex store.Execer, key string) (int64, boo
 }
 
 func createAuthor(ctx context.Context, ex store.Execer, name, key string) (int64, error) {
-	res, err := ex.ExecContext(ctx, `INSERT INTO authors (name, catalogue_key) VALUES (?, ?)`, name, key)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	return store.InsertID(ctx, ex, `INSERT INTO authors (name, catalogue_key) VALUES (?, ?)`, name, key)
 }
 
 // namedLike returns the authors whose name, or a spelling on one of their books, can be
@@ -312,7 +308,7 @@ func namedLike(all []Author, name string) []Author {
 // caller's transaction (the pool begins IMMEDIATE, so two adds of one new author can't
 // both create it). It returns 0 when the name could be more than one author and no key
 // decides it: that book stays unlinked rather than guessed.
-func (r *Repo) resolveAuthor(ctx context.Context, tx *sql.Tx, name, key string) (int64, error) {
+func (r *Repo) resolveAuthor(ctx context.Context, tx *store.Transaction, name, key string) (int64, error) {
 	name, key = strings.TrimSpace(name), strings.TrimSpace(key)
 	if !ValidAuthorKey(key) {
 		key = ""
@@ -380,7 +376,7 @@ func setBookAuthor(ctx context.Context, ex store.Execer, bookID, authorID int64)
 // and only an author without a key from that catalogue learns this one.
 func (r *Repo) linkBook(ctx context.Context, bookID int64, name, key string, relink bool) (int64, error) {
 	var linked int64
-	err := store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	err := store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		cur, err := bookAuthorID(ctx, tx, bookID)
 		if err != nil {
 			return err
@@ -412,7 +408,7 @@ func (r *Repo) linkBook(ctx context.Context, bookID int64, name, key string, rel
 
 // adoptKey gives a keyless author the catalogue's id for them, learned from one of their
 // books — when the name agrees and no other author holds that key already.
-func (r *Repo) adoptKey(ctx context.Context, tx *sql.Tx, authorID int64, name, key string) error {
+func (r *Repo) adoptKey(ctx context.Context, tx *store.Transaction, authorID int64, name, key string) error {
 	if !ValidAuthorKey(key) {
 		return nil
 	}
@@ -460,7 +456,7 @@ func (s *Service) UpsertByKey(ctx context.Context, key, name string) (int64, err
 	}
 	name = strings.TrimSpace(name)
 	var id int64
-	err := store.WithTx(ctx, s.repo.db, func(tx *sql.Tx) error {
+	err := store.WithTx(ctx, s.repo.db, func(tx *store.Transaction) error {
 		var err error
 		if id, err = s.repo.resolveAuthor(ctx, tx, name, key); err == nil && id == 0 {
 			// No usable name to file the key under: the key is the name until the
@@ -476,7 +472,7 @@ func (s *Service) UpsertByKey(ctx context.Context, key, name string) (int64, err
 // error) means the name could be more than one author.
 func (s *Service) UpsertByName(ctx context.Context, name string) (int64, error) {
 	var id int64
-	err := store.WithTx(ctx, s.repo.db, func(tx *sql.Tx) error {
+	err := store.WithTx(ctx, s.repo.db, func(tx *store.Transaction) error {
 		var err error
 		id, err = s.repo.resolveAuthor(ctx, tx, name, "")
 		return err
@@ -516,7 +512,7 @@ func (s *Service) SetCatalogueKey(ctx context.Context, id int64, key string) (in
 	}
 	keep := id
 	merged := 0
-	err := store.WithTx(ctx, s.repo.db, func(tx *sql.Tx) error {
+	err := store.WithTx(ctx, s.repo.db, func(tx *store.Transaction) error {
 		cur, err := s.repo.getAuthor(ctx, tx, id)
 		if err != nil {
 			return err
@@ -655,7 +651,7 @@ func (s *Service) BackfillAuthors(ctx context.Context) (linked, unlinked int, er
 		if !ValidAuthorKey(key) {
 			key = ""
 		}
-		err := store.WithTx(ctx, s.repo.db, func(tx *sql.Tx) error {
+		err := store.WithTx(ctx, s.repo.db, func(tx *store.Transaction) error {
 			id, err := s.repo.resolveAuthor(ctx, tx, g.name, key)
 			if err != nil || id == 0 {
 				if id == 0 {

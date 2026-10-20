@@ -27,7 +27,7 @@ type PathMove struct {
 // a rename that only renames a multi-file audiobook's tracks leaves the folder path as it
 // was.
 func (s *Service) RepointEdition(ctx context.Context, bookID, versionID int64, kind, path string, moves []PathMove, detail string) error {
-	return store.WithTx(ctx, s.repo.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, s.repo.db, func(tx *store.Transaction) error {
 		var (
 			res sql.Result
 			err error
@@ -69,7 +69,7 @@ func (s *Service) RepointEdition(ctx context.Context, bookID, versionID int64, k
 // An entry still here at start-up is a rename a crash cut short.
 func (s *Service) JournalRename(ctx context.Context, bookID, versionID int64, kind, oldPath, newPath string, moves []PathMove) error {
 	now := time.Now().UnixMilli()
-	return store.WithTx(ctx, s.repo.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, s.repo.db, func(tx *store.Transaction) error {
 		if err := clearJournal(ctx, tx, bookID, versionID, kind); err != nil {
 			return err
 		}
@@ -102,7 +102,7 @@ type FileID struct {
 // ids were stored, or never listed — before a rename moves it, so the id it was always
 // given (from its old name) is the one it keeps. A stored id is never changed.
 func (s *Service) PinFileIDs(ctx context.Context, ids []FileID) error {
-	return store.WithTx(ctx, s.repo.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, s.repo.db, func(tx *store.Transaction) error {
 		for _, f := range ids {
 			if _, err := tx.ExecContext(ctx,
 				`INSERT INTO audio_file_meta (path, size, mtime, ino) VALUES (?, -1, 0, ?)

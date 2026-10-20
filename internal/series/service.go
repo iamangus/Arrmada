@@ -2,7 +2,6 @@ package series
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +21,7 @@ import (
 	"github.com/tristenlammi/arrmada/internal/library"
 	"github.com/tristenlammi/arrmada/internal/metadata"
 	"github.com/tristenlammi/arrmada/internal/parser"
+	"github.com/tristenlammi/arrmada/internal/store"
 	"github.com/tristenlammi/arrmada/internal/xem"
 )
 
@@ -293,7 +293,7 @@ func (s *Service) DeleteEpisodeFile(ctx context.Context, seriesID int64, season,
 }
 
 // NewService wires the module. root is the library directory (for scan / delete-files).
-func NewService(db *sql.DB, meta metadata.SeriesProvider, root string, log *slog.Logger) *Service {
+func NewService(db store.Pool, meta metadata.SeriesProvider, root string, log *slog.Logger) *Service {
 	return &Service{repo: NewRepo(db), meta: meta, root: root, bin: library.SingleBin(""), log: log}
 }
 

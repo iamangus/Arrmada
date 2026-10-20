@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+
+	"github.com/tristenlammi/arrmada/internal/store"
 )
 
 // ImportRecord is a row in the import history.
@@ -39,7 +41,7 @@ const (
 	AttachStateGone      = "gone"      // the imported file vanished before it was attached
 )
 
-type importRepo struct{ db *sql.DB }
+type importRepo struct{ db store.Pool }
 
 func (r *importRepo) exists(ctx context.Context, hash string) (bool, error) {
 	var n int

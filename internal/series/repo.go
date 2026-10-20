@@ -21,10 +21,10 @@ var ErrNotFound = errors.New("series not found")
 var ErrExists = errors.New("series already in library")
 
 // Repo persists series, seasons, and episodes in SQLite.
-type Repo struct{ db *sql.DB }
+type Repo struct{ db store.Pool }
 
 // NewRepo builds a repository over the given pool.
-func NewRepo(db *sql.DB) *Repo { return &Repo{db: db} }
+func NewRepo(db store.Pool) *Repo { return &Repo{db: db} }
 
 const seriesCols = `id, tmdb_id, imdb_id, title, year, overview, poster_url, status, network,
 	monitored, quality_profile, extra_json, series_type, tvdb_id, added_at, numbering_source,
@@ -270,19 +270,18 @@ func (r *Repo) Create(ctx context.Context, s Series) (Series, error) {
 	if stype == "" {
 		stype = SeriesTypeStandard
 	}
-	res, err := r.db.ExecContext(ctx,
+	id, err := store.InsertID(ctx, r.db,
 		`INSERT INTO series (tmdb_id, imdb_id, title, year, overview, poster_url, status, network,
 			monitored, quality_profile, extra_json, series_type, tvdb_id, monitor_new_seasons, library_folder_id)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		s.TMDBID, s.IMDBID, s.Title, s.Year, s.Overview, s.PosterURL, s.Status, s.Network,
 		b2i(s.Monitored), s.QualityProfile, extraJSON, stype, s.TVDBID, b2i(s.MonitorNewSeasons), s.LibraryFolderID)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+		if store.IsUniqueViolation(err) {
 			return Series{}, ErrExists
 		}
 		return Series{}, err
 	}
-	id, _ := res.LastInsertId()
 	return r.Get(ctx, id)
 }
 
@@ -367,7 +366,7 @@ func (r *Repo) InsertNewEpisodes(ctx context.Context, seriesID int64, seasons []
 // alone. Only for a listing numbered the same way as the stored rows: otherwise one
 // episode's title and date would land on another.
 func (r *Repo) RefreshEpisodeMetadata(ctx context.Context, seriesID int64, seasons []Season) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		for _, sn := range seasons {
 			for _, ep := range sn.Episodes {
 				if _, err := tx.ExecContext(ctx,
@@ -389,7 +388,7 @@ func (r *Repo) RefreshEpisodeMetadata(ctx context.Context, seriesID int64, seaso
 // shifts but nothing else does: each file stays on the (season, episode) it was on. It
 // never reads or touches a file.
 func (r *Repo) ReassignAbsolutes(ctx context.Context, seriesID int64, seasons []Season) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		for _, sn := range seasons {
 			for _, ep := range sn.Episodes {
 				if _, err := tx.ExecContext(ctx,
@@ -523,7 +522,7 @@ func (r *Repo) SeasonsFor(ctx context.Context, seriesID int64) ([]Season, error)
 //
 // Turning searching on also gives the show the paced-search mark (see markPacedTx).
 func (r *Repo) SetMonitored(ctx context.Context, id int64, monitored bool) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		if monitored {
 			if err := markPacedTx(ctx, tx, id); err != nil {
 				return err
@@ -910,7 +909,7 @@ func (r *Repo) SetSearchPaced(ctx context.Context, seriesID int64, on bool) erro
 // once did (automation/paced.go). One show turned on alone loses nothing: the sweep lets
 // up to PacedSearchesPerSweep marked shows through each run. A show whose searching is
 // already on is left as it is.
-func markPacedTx(ctx context.Context, tx *sql.Tx, id int64) error {
+func markPacedTx(ctx context.Context, tx *store.Transaction, id int64) error {
 	_, err := tx.ExecContext(ctx, `UPDATE series SET search_paced = 1 WHERE id = ? AND monitored = 0`, id)
 	return err
 }
@@ -1147,7 +1146,7 @@ func (r *Repo) NthEpisodeOfSeason(ctx context.Context, seriesID int64, season, n
 // SetSeasonMonitored toggles a whole season (and its episodes). A change makes the show's
 // monitoring Custom: no preset's rule describes it any more.
 func (r *Repo) SetSeasonMonitored(ctx context.Context, seriesID, seasonNumber int64, monitored bool) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		// Either write counts as a change: a season announced but with no episodes yet
 		// changes only its own flag, which decides whether its episodes are wanted when a
 		// refresh adds them.
@@ -1171,7 +1170,7 @@ func (r *Repo) SetSeasonMonitored(ctx context.Context, seriesID, seasonNumber in
 // episode in an unmonitored season used to do nothing. A change makes the show's
 // monitoring Custom.
 func (r *Repo) SetEpisodeMonitored(ctx context.Context, episodeID int64, monitored bool) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		var seriesID int64
 		var season int
 		err := tx.QueryRowContext(ctx, `SELECT series_id, season_number FROM episodes WHERE id = ?`, episodeID).Scan(&seriesID, &season)
@@ -1219,7 +1218,7 @@ func (r *Repo) SetEpisodesMonitored(ctx context.Context, seriesID int64, ids []i
 	for _, id := range uniq {
 		args = append(args, id)
 	}
-	err := store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	err := store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		var found int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM episodes WHERE series_id = ? AND id IN (`+marks+`)`, args...).Scan(&found); err != nil {
 			return err
@@ -1465,7 +1464,7 @@ func (r *Repo) CurrentEpisodeFile(ctx context.Context, seriesID int64, season, e
 // transaction, returning how many changed.
 func (r *Repo) HoldUpgrades(ctx context.Context, episodeIDs []int64) (int, error) {
 	n := 0
-	err := store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	err := store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		for ids := episodeIDs; len(ids) > 0; {
 			chunk := ids
 			if len(chunk) > 500 { // well under SQLite's variable limit
@@ -1564,7 +1563,7 @@ func (r *Repo) AnyEpisodeFilePath(ctx context.Context, seriesID int64) (string, 
 // SetQualityProfile changes a series' quality profile. Moving to another profile ends
 // every episode's upgrade hold: the holds were about the old profile's change.
 func (r *Repo) SetQualityProfile(ctx context.Context, id int64, profile string) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		var old string
 		if err := tx.QueryRowContext(ctx, `SELECT quality_profile FROM series WHERE id = ?`, id).Scan(&old); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {

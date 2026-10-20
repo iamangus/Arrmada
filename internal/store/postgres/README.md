@@ -22,3 +22,15 @@ fold helper preserves SQLite's case folding without requiring extensions.
 Behavioral triggers are reviewed and maintained separately in `0002_behavior.sql`.
 They must preserve book edits, audiobook metadata invalidation and viewing-group
 maintenance. Table/column parity alone does not prove behavioral parity.
+
+`0003_writer_lock.sql` retains the existing single-writer contract while repositories
+are ported. `WithTx` takes a schema-scoped transaction advisory lock before its first
+read; statement triggers take the same lock for autocommit writes. Reads remain
+concurrent, unrelated schemas are not locked, and callbacks are never replayed.
+Connections explicitly use Read Committed isolation, so a waiting transaction's
+first repository read sees the preceding writer's committed state even if the
+shared server's default isolation is different.
+New application tables must install the same `arrmada_serialize_writes` trigger;
+an integration test checks that every application table participates. Increasing
+write concurrency later requires auditing the read-then-write invariants, not
+simply removing this lock.

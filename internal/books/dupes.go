@@ -2,7 +2,6 @@ package books
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"regexp"
 	"sort"
@@ -349,7 +348,7 @@ func (s *Service) IgnoreDuplicates(ctx context.Context, ids []int64) error {
 		list = append(list, id)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i] < list[j] })
-	return store.WithTx(ctx, s.repo.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, s.repo.db, func(tx *store.Transaction) error {
 		for i := range list {
 			for j := i + 1; j < len(list); j++ {
 				if _, err := tx.ExecContext(ctx,
@@ -384,7 +383,7 @@ func (s *Service) flagDuplicate(ctx context.Context, a, b int64, reason string) 
 // carryDupeReviewsTx gives the kept book the dropped one's review pairs with other
 // books (a "these are different" still holds for the merged book), before the dropped
 // row's own pairs go with it.
-func carryDupeReviewsTx(ctx context.Context, tx *sql.Tx, keepID, dropID int64) error {
+func carryDupeReviewsTx(ctx context.Context, tx *store.Transaction, keepID, dropID int64) error {
 	_, err := tx.ExecContext(ctx,
 		`INSERT OR IGNORE INTO book_dupe_reviews (a_id, b_id, reason, status, created_at)
 		 SELECT MIN(?, other), MAX(?, other), reason, status, created_at FROM (

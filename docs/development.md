@@ -59,6 +59,16 @@ behavior against PostgreSQL; migration locking, checksums, backup-required upgra
 transactional failure recovery, schema/column/type/index/foreign-key parity, and paired
 SQLite/PostgreSQL tests for book edits and viewing-group triggers. Concurrent viewing
 inserts are checked against an independent window-function calculation.
+Authentication, sessions, personal API keys, account merging, configuration
+repositories and persisted jobs have real PostgreSQL integration coverage too.
+
+Repository constructors accept `store.Pool`; multi-step writes use
+`store.WithTx` and its dialect-aware `store.Transaction`. Architecture tests
+reject concrete driver pools/transactions and `LastInsertId` in production
+repositories. Use `store.InsertID` for inserts or explicit `RETURNING` for an
+upsert that must return the updated row. The initial PostgreSQL writer policy
+is documented in [the migration notes](../internal/store/postgres/README.md).
+
 Without the environment variable the real-server tests explicitly skip; CI supplies
 disposable PostgreSQL 16, 17 and 18 services so they must run there. This does not yet establish
 application-level PostgreSQL feature parity or a supported server-version range.

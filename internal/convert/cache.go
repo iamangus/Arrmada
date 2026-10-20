@@ -2,9 +2,10 @@ package convert
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"os"
+
+	"github.com/tristenlammi/arrmada/internal/store"
 )
 
 // probeCache persists ffprobe results so the library scan doesn't re-analyze
@@ -12,7 +13,7 @@ import (
 // mtime are unchanged AND it was written by the current probe schema; any change
 // (or a missing file) forces a fresh probe.
 // Backed by the convert_probe_cache table.
-type probeCache struct{ db *sql.DB }
+type probeCache struct{ db store.Pool }
 
 // probeSchemaVersion invalidates cached probes when MediaInfo gains fields the
 // pipelines rely on. Bumped for DVProfile / Interlaced / VideoIndex / FrameRateRat —

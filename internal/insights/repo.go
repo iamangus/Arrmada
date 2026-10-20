@@ -10,9 +10,10 @@ import (
 	"time"
 
 	"github.com/tristenlammi/arrmada/internal/mediaserver"
+	"github.com/tristenlammi/arrmada/internal/store"
 )
 
-type repo struct{ db *sql.DB }
+type repo struct{ db store.Pool }
 
 // sessionRecord is a finalized play session ready to persist.
 type sessionRecord struct {
@@ -62,8 +63,8 @@ func (r *repo) insertSession(ctx context.Context, s sessionRecord) (int64, error
 }
 
 // insertSessionEx is insertSession on the database or inside a transaction.
-func (r *repo) insertSessionEx(ctx context.Context, ex execer, s sessionRecord) (int64, error) {
-	res, err := ex.ExecContext(ctx, `
+func (r *repo) insertSessionEx(ctx context.Context, ex store.Execer, s sessionRecord) (int64, error) {
+	return store.InsertID(ctx, ex, `
 		INSERT INTO stream_sessions
 		 (session_key,user_id,user_name,rating_key,media_type,title,grandparent_title,parent_title,
 		  media_index,parent_index,year,thumb,player,platform,product,ip_address,location,decision,
@@ -76,10 +77,6 @@ func (r *repo) insertSessionEx(ctx context.Context, ex execer, s sessionRecord) 
 		s.StartedAt, s.StoppedAt, s.PausedMS, s.ViewOffsetMS, s.DurationMS, s.WatchedMS,
 		s.VideoSrc, s.VideoStream, s.AudioSrc, s.AudioStream, s.ContainerSrc, s.ContainerStream, b2i(s.HWTranscode), s.BufferCount, s.ImportRunID,
 		s.VideoSrcBitDepth, s.VideoSrcProfile, s.GrandparentThumb, s.GrandparentRatingKey, string(serverOf(s.Server)))
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
 }
 
 // sessionExists reports whether a session for this user + item + start time is already recorded

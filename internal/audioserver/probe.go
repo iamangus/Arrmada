@@ -2,7 +2,6 @@ package audioserver
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/tristenlammi/arrmada/internal/library"
 	"github.com/tristenlammi/arrmada/internal/mediainfo"
+	"github.com/tristenlammi/arrmada/internal/store"
 )
 
 // AudioFile is one audio file of an item, with what ffprobe found in it.
@@ -46,7 +46,7 @@ type Chapter struct {
 }
 
 type prober struct {
-	db      *sql.DB
+	db      store.Pool
 	ffprobe string
 	cache   filesCache
 	// stat and walk are the only ways the prober touches the disk (nil = os.Stat and

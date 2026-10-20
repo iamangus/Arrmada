@@ -104,7 +104,7 @@ var ErrOverlapsChanged = errors.New("the number of double-counted plays changed 
 
 func (r *repo) removeImportOverlaps(ctx context.Context, expected int) (int64, error) {
 	var removed int64
-	err := store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	err := store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		var n int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM stream_sessions i WHERE `+importOverlapWhere).Scan(&n); err != nil {
 			return err

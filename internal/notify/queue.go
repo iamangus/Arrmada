@@ -103,7 +103,7 @@ func (s *Service) dispatch(ctx context.Context, key, dedupe string, m Message, d
 		return payload, nil
 	}
 	queued := 0
-	err := store.WithTx(ctx, s.db, func(tx *sql.Tx) error {
+	err := store.WithTx(ctx, s.db, func(tx *store.Transaction) error {
 		queued = 0
 		rows, err := tx.QueryContext(ctx,
 			`SELECT n.id, n.kind, n.options, n.url, n.config FROM notifications n

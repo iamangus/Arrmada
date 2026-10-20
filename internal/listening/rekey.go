@@ -2,11 +2,12 @@ package listening
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/tristenlammi/arrmada/internal/store"
 )
 
 // Re-keying: when two books are merged, every place, bookmark, session and timeline row
@@ -62,7 +63,7 @@ func (s *Store) HoldReports() (release func()) {
 //     at new, so a redirect is always one hop.
 //
 // The caller should hold HoldReports while the transaction runs.
-func (s *Store) RekeyItemsTx(ctx context.Context, tx *sql.Tx, moves map[string]string) (RekeyCounts, error) {
+func (s *Store) RekeyItemsTx(ctx context.Context, tx *store.Transaction, moves map[string]string) (RekeyCounts, error) {
 	var c RekeyCounts
 	olds := make([]string, 0, len(moves))
 	for old, nw := range moves {
@@ -151,7 +152,7 @@ func (s *Store) RekeyItemsTx(ctx context.Context, tx *sql.Tx, moves map[string]s
 
 // rekeyProgress moves every user's place on old to nw and returns the users it touched
 // (whose timelines on nw need trimming).
-func (s *Store) rekeyProgress(ctx context.Context, tx *sql.Tx, old, nw string, now int64, c *RekeyCounts) (map[int64]bool, error) {
+func (s *Store) rekeyProgress(ctx context.Context, tx *store.Transaction, old, nw string, now int64, c *RekeyCounts) (map[int64]bool, error) {
 	touched := map[int64]bool{}
 	rows, err := tx.QueryContext(ctx, progressSelect+` WHERE item_key = ?`, old)
 	if err != nil {
@@ -219,7 +220,7 @@ func placeWins(a, b Progress) bool {
 }
 
 // progressTx reads one stored place (removed or not) inside a transaction.
-func progressTx(ctx context.Context, tx *sql.Tx, userID int64, key string) (Progress, bool, error) {
+func progressTx(ctx context.Context, tx *store.Transaction, userID int64, key string) (Progress, bool, error) {
 	rows, err := tx.QueryContext(ctx, progressSelect+` WHERE user_id = ? AND item_key = ?`, userID, key)
 	if err != nil {
 		return Progress{}, false, err
@@ -234,7 +235,7 @@ func progressTx(ctx context.Context, tx *sql.Tx, userID int64, key string) (Prog
 
 // overwriteProgress writes every column of p over the stored row with its user and key —
 // the hold (pending_*), hidden and removed state included, exactly as they were.
-func overwriteProgress(ctx context.Context, tx *sql.Tx, p Progress) error {
+func overwriteProgress(ctx context.Context, tx *store.Transaction, p Progress) error {
 	var pending any
 	if p.PendingPosition != nil {
 		pending = *p.PendingPosition

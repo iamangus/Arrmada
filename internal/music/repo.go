@@ -16,10 +16,10 @@ import (
 // Repo persists the music library in SQLite: artists and albums (release groups), and
 // under each album its editions, discs, tracks and files (the model of migration 0339,
 // MUS-28). The old tracks table is frozen: nothing here reads or writes it (archtest).
-type Repo struct{ db *sql.DB }
+type Repo struct{ db store.Pool }
 
 // NewRepo builds a repository over the given pool.
-func NewRepo(db *sql.DB) *Repo { return &Repo{db: db} }
+func NewRepo(db store.Pool) *Repo { return &Repo{db: db} }
 
 const artistCols = `id, mbid, name, sort_name, overview, image_url, genres_json,
 	monitored, quality_profile, added_at, disambiguation, artist_type, country, in_library,
@@ -174,7 +174,7 @@ func (r *Repo) CreateArtist(ctx context.Context, a Artist) (Artist, error) {
 		}
 	}
 	var id int64
-	err := store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	err := store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		res, err := tx.ExecContext(ctx, `
 			INSERT INTO artists (mbid, name, sort_name, overview, image_url, genres_json, monitored, quality_profile,
 			                     disambiguation, artist_type, country, in_library)
@@ -230,7 +230,7 @@ const albumTracksOf = `UPDATE music_release_tracks SET monitored = ?
 // SetArtistMonitored toggles an artist and cascades to its albums and their tracks, so an
 // unmonitored artist can't leave monitored albums behind that the searcher keeps chasing.
 func (r *Repo) SetArtistMonitored(ctx context.Context, id int64, monitored bool) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE artists SET monitored = ? WHERE id = ?`, b2i(monitored), id); err != nil {
 			return err
 		}
@@ -266,7 +266,7 @@ const albumCredits = `
 // credit and all. An artist that nothing credits any more is then removed outright, its
 // history with it, which is what deleting an artist always did.
 func (r *Repo) DeleteArtist(ctx context.Context, id int64) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		res, err := tx.ExecContext(ctx, `UPDATE artists SET in_library = 0, monitored = 0 WHERE id = ?`, id)
 		if err := affected(res, err); err != nil {
 			return err
@@ -441,7 +441,8 @@ func (r *Repo) UpsertAlbum(ctx context.Context, al Album) (int64, error) {
 	if al.FoundAt != "" {
 		foundAt = sql.NullString{String: al.FoundAt, Valid: true}
 	}
-	res, err := r.db.ExecContext(ctx,
+	var id int64
+	err := r.db.QueryRowContext(ctx,
 		`INSERT INTO albums (artist_id, mbid, title, year, album_type, cover_url, release_date, monitored,
 		                     primary_type, secondary_types, found_at, found_as, artist_credit_id)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
@@ -451,17 +452,9 @@ func (r *Repo) UpsertAlbum(ctx context.Context, al Album) (int64, error) {
 		   cover_url = excluded.cover_url, release_date = excluded.release_date,
 		   primary_type = excluded.primary_type, secondary_types = excluded.secondary_types,
 		   artist_credit_id = COALESCE(albums.artist_credit_id, excluded.artist_credit_id),
-		   stale_since = NULL`,
+		   stale_since = NULL RETURNING id`,
 		al.ArtistID, al.MBID, al.Title, al.Year, al.AlbumType, al.CoverURL, al.ReleaseDate, b2i(al.Monitored),
-		primary, secondary, foundAt, al.FoundAs, al.ArtistID)
-	if err != nil {
-		return 0, err
-	}
-	if id, _ := res.LastInsertId(); id > 0 {
-		return id, nil
-	}
-	var id int64
-	err = r.db.QueryRowContext(ctx, `SELECT id FROM albums WHERE mbid = ?`, al.MBID).Scan(&id)
+		primary, secondary, foundAt, al.FoundAs, al.ArtistID).Scan(&id)
 	return id, err
 }
 
@@ -576,7 +569,7 @@ func (r *Repo) TouchSearch(ctx context.Context, id int64) error {
 
 // SetAlbumMonitored toggles an album and the tracks of its editions.
 func (r *Repo) SetAlbumMonitored(ctx context.Context, id int64, monitored bool) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE albums SET monitored = ? WHERE id = ?`, b2i(monitored), id); err != nil {
 			return err
 		}
@@ -689,7 +682,7 @@ type Listing struct {
 // and its file: a refresh that re-listed the album must not forget which tracks are on
 // disk.
 func (r *Repo) UpsertListing(ctx context.Context, albumID int64, l Listing) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		var target sql.NullInt64
 		if err := tx.QueryRowContext(ctx, `SELECT target_release_id FROM albums WHERE id = ?`, albumID).Scan(&target); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -761,12 +754,12 @@ func (r *Repo) RecordTrackFile(ctx context.Context, trackID int64, rec FileRecor
 	if strings.TrimSpace(rec.Path) == "" {
 		return errors.New("music: a track file needs a path")
 	}
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error { return recordTrackFileTx(ctx, tx, trackID, rec) })
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error { return recordTrackFileTx(ctx, tx, trackID, rec) })
 }
 
 // recordTrackFileTx is RecordTrackFile inside a transaction (the scan records an album's
 // files in one).
-func recordTrackFileTx(ctx context.Context, tx *sql.Tx, trackID int64, rec FileRecord) error {
+func recordTrackFileTx(ctx context.Context, tx *store.Transaction, trackID int64, rec FileRecord) error {
 	var albumID int64
 	if err := tx.QueryRowContext(ctx, `
 		SELECT r.album_id FROM music_release_tracks rt

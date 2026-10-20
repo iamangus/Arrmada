@@ -2,7 +2,6 @@ package books
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -103,7 +102,7 @@ func (r *Repo) worksSeen(ctx context.Context, authorID int64) (map[string]bool, 
 // checked (and seeded) now, in one transaction: a seed that half-landed would make the
 // rest of the catalogue look new next week.
 func (r *Repo) markSeen(ctx context.Context, authorID int64, works []metadata.BookResult, stamp bool) error {
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		for _, wk := range works {
 			for _, k := range seenKeys(wk) {
 				if _, err := tx.ExecContext(ctx,

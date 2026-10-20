@@ -23,7 +23,6 @@ package outbox
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,7 +74,7 @@ type consumer struct {
 
 // Outbox writes rows for registered consumers and runs their handlers.
 type Outbox struct {
-	db  *sql.DB
+	db  store.Pool
 	log *slog.Logger
 
 	mu     sync.RWMutex
@@ -87,7 +86,7 @@ type Outbox struct {
 }
 
 // New makes an Outbox over db. Register every consumer before anything can Enqueue.
-func New(db *sql.DB, log *slog.Logger) *Outbox {
+func New(db store.Pool, log *slog.Logger) *Outbox {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -139,8 +138,8 @@ func (o *Outbox) handler(topic, name string) *consumer {
 	return nil
 }
 
-// Enqueue writes one row per consumer registered for topic, through q — a *sql.Tx to land
-// with the caller's own writes, or the *sql.DB. A topic nobody consumes writes nothing.
+// Enqueue writes one row per consumer registered for topic, through q — a *store.Transaction to land
+// with the caller's own writes, or the store.Pool. A topic nobody consumes writes nothing.
 //
 // dedupeKey ("" for none) collapses repeats: while a row for the same topic, consumer and
 // key is still waiting, a new Enqueue replaces its payload and makes it due now instead of

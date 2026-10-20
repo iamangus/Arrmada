@@ -83,7 +83,7 @@ func presetRule(preset string, id int64) (string, []any) {
 // "the first season". All and None are checked the same way. Missing, Existing and Future
 // are left alone: their rules follow files and air dates, which drift from the flags with
 // time anyway, and a renumber changes neither.
-func markCustomIfRenumberedTx(ctx context.Context, tx *sql.Tx, id int64) error {
+func markCustomIfRenumberedTx(ctx context.Context, tx *store.Transaction, id int64) error {
 	var preset string
 	if err := tx.QueryRowContext(ctx, `SELECT monitor_preset FROM series WHERE id = ?`, id).Scan(&preset); err != nil {
 		return err
@@ -120,7 +120,7 @@ func (r *Repo) ApplyMonitorPreset(ctx context.Context, id int64, preset string, 
 	if newSeasons != nil {
 		mns = *newSeasons
 	}
-	return store.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+	return store.WithTx(ctx, r.db, func(tx *store.Transaction) error {
 		var exists int
 		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM series WHERE id = ?`, id).Scan(&exists); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -161,7 +161,7 @@ func (r *Repo) ApplyMonitorPreset(ctx context.Context, id int64, preset string, 
 // episode in an unmonitored season used to do nothing at all. season < 0 syncs every
 // season. A season with no episodes yet (announced, empty) takes emptyFlag, so it follows
 // "monitor new seasons" once its episodes arrive.
-func syncSeasonsTx(ctx context.Context, tx *sql.Tx, seriesID int64, season int, emptyFlag bool) error {
+func syncSeasonsTx(ctx context.Context, tx *store.Transaction, seriesID int64, season int, emptyFlag bool) error {
 	q := `UPDATE seasons SET monitored = CASE
 	        WHEN EXISTS (SELECT 1 FROM episodes e WHERE e.series_id = seasons.series_id AND e.season_number = seasons.season_number)
 	        THEN EXISTS (SELECT 1 FROM episodes e WHERE e.series_id = seasons.series_id AND e.season_number = seasons.season_number AND e.monitored = 1)
@@ -191,7 +191,7 @@ func changed(res sql.Result) bool {
 
 // markCustomTx records that a show's seasons or episodes were changed one by one, so the
 // preset it remembers no longer describes them.
-func markCustomTx(ctx context.Context, tx *sql.Tx, seriesID int64) error {
+func markCustomTx(ctx context.Context, tx *store.Transaction, seriesID int64) error {
 	_, err := tx.ExecContext(ctx, `UPDATE series SET monitor_preset = ? WHERE id = ?`, PresetCustom, seriesID)
 	return err
 }

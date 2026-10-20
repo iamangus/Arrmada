@@ -59,6 +59,7 @@ func openPostgresPool(ctx context.Context, opt PostgresOptions) (*Database, erro
 	cfg.RuntimeParams["search_path"] = pgx.Identifier{opt.Schema}.Sanitize() + ", pg_catalog, pg_temp"
 	cfg.RuntimeParams["timezone"] = "UTC"
 	cfg.RuntimeParams["standard_conforming_strings"] = "on"
+	cfg.RuntimeParams["default_transaction_isolation"] = "read committed"
 	cfg.RuntimeParams["application_name"] = "arrmada"
 	if cfg.ConnectTimeout == 0 {
 		cfg.ConnectTimeout = 10 * time.Second

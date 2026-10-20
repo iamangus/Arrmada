@@ -494,7 +494,7 @@ func (c *Coordinator) ReconcileAcquisitions(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 	defer c.grabsChanged()
-	err = store.WithTx(ctx, c.db, func(tx *sql.Tx) error {
+	err = store.WithTx(ctx, c.db, func(tx *store.Transaction) error {
 		for _, r := range changed {
 			if _, err := tx.ExecContext(ctx, `UPDATE grabs SET phase = ?, progress = ?, progress_at = ?,
 				last_seen_at = ?, completed_at = ?, updated_at = ?, client_id = ? WHERE id = ?`,

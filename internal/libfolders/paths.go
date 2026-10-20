@@ -2,10 +2,11 @@ package libfolders
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/tristenlammi/arrmada/internal/store"
 )
 
 // pathColumn is one stored absolute path to a Movies or TV library file. Every table that
@@ -97,7 +98,7 @@ func (c RewriteCount) Total() int64 {
 // title. Comparisons are on whole path segments ("/movies/Heat (1995)" never matches
 // "/movies/Heat (1995) Director's Cut") and use substr rather than LIKE, so a "%" or "_"
 // in a folder name means itself.
-func RewritePrefix(ctx context.Context, tx *sql.Tx, oldDir, newDir string) (RewriteCount, error) {
+func RewritePrefix(ctx context.Context, tx *store.Transaction, oldDir, newDir string) (RewriteCount, error) {
 	oldDir, newDir = filepath.Clean(oldDir), filepath.Clean(newDir)
 	if oldDir == newDir {
 		return RewriteCount{}, nil
