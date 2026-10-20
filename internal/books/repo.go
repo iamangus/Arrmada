@@ -465,7 +465,7 @@ func (r *Repo) FillCoverURL(ctx context.Context, id int64, coverURL string) (boo
 // triggers of migration 0262_books_meta_updated; like them, it only ever moves forward.
 func (r *Repo) TouchMeta(ctx context.Context, id int64) error {
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE books SET meta_updated_at = MAX(?, meta_updated_at + 1) WHERE id = ?`, time.Now().UnixMilli(), id)
+		`UPDATE books SET meta_updated_at = `+store.ScalarMax(r.db, "?", "meta_updated_at + 1")+` WHERE id = ?`, time.Now().UnixMilli(), id)
 	return affected(res, err)
 }
 

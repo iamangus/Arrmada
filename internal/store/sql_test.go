@@ -22,6 +22,16 @@ func TestSQLExpressionHelpers(t *testing.T) {
 		if got := FoldASCII(db, "?"); got != tt.fold {
 			t.Errorf("%s fold expression = %q", tt.dialect, got)
 		}
+		min, max := "MIN(a, b)", "MAX(a, b)"
+		if tt.dialect == Postgres {
+			min, max = "LEAST(a, b)", "GREATEST(a, b)"
+		}
+		if got := ScalarMin(db, "a", "b"); got != min {
+			t.Errorf("%s scalar min = %q", tt.dialect, got)
+		}
+		if got := ScalarMax(db, "a", "b"); got != max {
+			t.Errorf("%s scalar max = %q", tt.dialect, got)
+		}
 	}
 }
 

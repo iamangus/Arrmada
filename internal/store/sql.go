@@ -69,3 +69,23 @@ func UTCNowTimestamp(q Execer, modifier string) string {
 	}
 	return expression
 }
+
+// ScalarMin and ScalarMax compare non-null expressions, not groups of rows.
+// Callers must establish non-null operands (schema NOT NULL or COALESCE): native
+// PostgreSQL LEAST/GREATEST ignore NULL while SQLite's scalar MIN/MAX return it.
+// Expressions are trusted SQL, never request values.
+func ScalarMin(q Execer, left, right string) string {
+	name := "MIN"
+	if DialectOf(q) == Postgres {
+		name = "LEAST"
+	}
+	return name + "(" + left + ", " + right + ")"
+}
+
+func ScalarMax(q Execer, left, right string) string {
+	name := "MAX"
+	if DialectOf(q) == Postgres {
+		name = "GREATEST"
+	}
+	return name + "(" + left + ", " + right + ")"
+}

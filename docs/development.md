@@ -69,6 +69,11 @@ unknown fields and large integers, per-season notification state, folder-path/ca
 rewrites and rollback, plus ASCII-only matching. PostgreSQL JSON mutations read and
 write text documents under `WithTx` rather than forcing them through `jsonb` or a
 lossy struct round-trip; scalar reads use guarded native `json` expressions.
+Insights tests compare watch-time clamping, grouped history, imports/overlap repair,
+person/title totals and graph aggregates on both engines. PostgreSQL graph buckets
+use the application's local timezone (including custom fixed zones and repeated DST
+hours), not the remote server's timezone. Book edit/reset stamps and repeated offline
+listening uploads have paired high-water-mark tests as well.
 
 Repository constructors accept `store.Pool`; multi-step writes use
 `store.WithTx` and its dialect-aware `store.Transaction`. Architecture tests
@@ -78,6 +83,8 @@ upsert that must return the updated row. The initial PostgreSQL writer policy
 is documented in [the migration notes](../internal/store/postgres/README.md).
 SQL date expressions distinguish UTC text columns (`store.UTCNowText`) from native
 timestamp columns (`store.UTCNowTimestamp`); interval modifiers are bound values.
+The parameter boundary handles bare `?` and SQLite's repeated numbered `?N`
+markers, including prepared statements; it does not translate SQL dialects.
 
 Without the environment variable the real-server tests explicitly skip; CI supplies
 disposable PostgreSQL 16, 17 and 18 services so they must run there. This does not yet establish

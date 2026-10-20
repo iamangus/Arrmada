@@ -357,7 +357,7 @@ func carryEditsTx(ctx context.Context, tx *store.Transaction, keep Book, drop Bo
 	if err != nil {
 		return err
 	}
-	sets = append(sets, "edits_json = ?", "edited_at = MAX(?, edited_at + 1)")
+	sets = append(sets, "edits_json = ?", "edited_at = "+store.ScalarMax(tx, "?", "edited_at + 1"))
 	args = append(args, raw, time.Now().UnixMilli(), keep.ID)
 	_, err = tx.ExecContext(ctx, `UPDATE books SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...)
 	return err

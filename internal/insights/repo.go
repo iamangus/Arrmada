@@ -150,7 +150,7 @@ func (r *repo) upsertUser(ctx context.Context, server mediaserver.Kind, id, user
 		ON CONFLICT(id) DO UPDATE SET
 			username=CASE WHEN excluded.username <> '' THEN excluded.username ELSE plex_users.username END,
 			thumb=CASE WHEN excluded.thumb <> '' THEN excluded.thumb ELSE plex_users.thumb END,
-			last_seen_at=MAX(plex_users.last_seen_at, excluded.last_seen_at)`,
+			last_seen_at=`+store.ScalarMax(r.db, "plex_users.last_seen_at", "excluded.last_seen_at"),
 		id, username, thumb, at, string(serverOf(server)))
 	return err
 }
@@ -342,14 +342,14 @@ func (r *repo) historyGrouped(ctx context.Context, f HistoryFilter, fn func(Grou
 // viewing's sittings (those also matching and, the filters) and returns the rows
 // historyGroupedScan reads. The page's columns are named apart (p_*), so the join's
 // filters and the watched expression read stream_sessions' own columns unqualified.
-func groupedPageSQL(and string) string {
+func groupedPageSQL(db store.Execer, and string) string {
 	return `v AS (
 			SELECT p_id, p_start, p_total, MAX(stopped_at) AS stop, MAX(view_offset_ms) AS off, SUM(buffer_count) AS bufs,
-				SUM(paused_ms) AS paused, SUM(` + watchedExpr + `) AS watched, COUNT(*) AS sessions, MAX(id) AS last_id
+				SUM(paused_ms) AS paused, SUM(` + watchedExprFor(db) + `) AS watched, COUNT(*) AS sessions, MAX(id) AS last_id
 			FROM page JOIN stream_sessions ON user_id = p_user AND ` + itemKey + ` = p_item
 				AND (started_at, id) >= (p_start, p_id)
 				AND (p_next_start IS NULL OR (started_at, id) < (p_next_start, p_next_id))` + and + `
-			GROUP BY p_id)
+			GROUP BY p_id, p_start, p_total)
 		SELECT v.p_start, v.stop, v.off, v.bufs, v.paused, v.watched, v.sessions, v.p_total, ` + prefixed("s.", historyCols) + `
 		FROM v JOIN stream_sessions s ON s.id = v.last_id
 		ORDER BY v.p_start DESC, v.p_id DESC`
@@ -369,14 +369,14 @@ func (r *repo) historyGroupedMarked(ctx context.Context, f HistoryFilter, fn fun
 	if f.Offset >= total {
 		return total, nil
 	}
-	_, err := r.historyGroupedScan(ctx, groupedMarkedSQL(where), append(append([]any{total}, args...), f.Limit, f.Offset), fn)
+	_, err := r.historyGroupedScan(ctx, groupedMarkedSQL(r.db, where), append(append([]any{total}, args...), f.Limit, f.Offset), fn)
 	return total, err
 }
 
 // groupedMarkedSQL is historyGroupedMarked's page query: the page's marked starts (where
 // filters stream_sessions s), each with the next marked start of its item — the sittings
 // before that one are this viewing's. Arguments: the total, where's, limit, offset.
-func groupedMarkedSQL(where string) string {
+func groupedMarkedSQL(db store.Execer, where string) string {
 	next := func(col string) string {
 		return `(SELECT n.` + col + ` FROM stream_sessions n
 			WHERE n.user_id = s.user_id AND ` + itemKeyOf("n") + ` = ` + itemKeyOf("s") + `
@@ -385,10 +385,10 @@ func groupedMarkedSQL(where string) string {
 	}
 	return `WITH page AS (
 			SELECT s.id AS p_id, s.user_id AS p_user, ` + itemKeyOf("s") + ` AS p_item, s.started_at AS p_start,
-				` + next("started_at") + ` AS p_next_start, ` + next("id") + ` AS p_next_id, ? AS p_total
+				` + next("started_at") + ` AS p_next_start, ` + next("id") + ` AS p_next_id, CAST(? AS bigint) AS p_total
 			FROM stream_sessions s` + where + `
 			ORDER BY s.started_at DESC, s.id DESC LIMIT ? OFFSET ?),
-		` + groupedPageSQL("")
+		` + groupedPageSQL(db, "")
 }
 
 // historyGroupedWindow is historyGrouped for any filters. The filters pick the sittings
@@ -412,7 +412,7 @@ func (r *repo) historyGroupedWindow(ctx context.Context, f HistoryFilter, fn fun
 				LEAD(started_at) OVER w AS p_next_start, LEAD(id) OVER w AS p_next_id, COUNT(*) OVER () AS p_total
 			FROM st WINDOW w AS (PARTITION BY user_id, item ORDER BY started_at, id)),
 		page AS (SELECT * FROM p ORDER BY p_start DESC, p_id DESC LIMIT ? OFFSET ?),
-		` + groupedPageSQL(and)
+		` + groupedPageSQL(r.db, and)
 	all := append(append(append([]any{}, args...), f.Limit, f.Offset), args...)
 	total, err := r.historyGroupedScan(ctx, q, all, fn)
 	if err != nil || total >= 0 {

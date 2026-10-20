@@ -7,6 +7,8 @@ import (
 
 // bind only changes parameter markers, never SQL syntax or values. PostgreSQL
 // literals, identifiers, dollar quotes and comments can contain question marks.
+// SQLite's explicit ?N parameters retain their index (including repeated uses);
+// a following bare ? takes the slot after the highest index used so far.
 // An actual PostgreSQL question-mark operator is written ?? in a query sent
 // through this boundary (backend-specific queries may still use $n parameters).
 func (d Dialect) bind(query string) string {
@@ -69,6 +71,19 @@ func (d Dialect) bind(query string) string {
 			// already a native PostgreSQL parameter, not a dollar quote.
 			end := i + 1
 			if i == 0 || !sqlIdentByte(query[i-1]) {
+				for end < len(query) && query[end] >= '0' && query[end] <= '9' {
+					end++
+				}
+				if end > i+1 {
+					if index, err := strconv.Atoi(query[i+1 : end]); err == nil && index > 0 {
+						param = max(param, index)
+					}
+					out.WriteString(query[i:end])
+					i = end
+					continue
+				}
+			}
+			if i == 0 || !sqlIdentByte(query[i-1]) {
 				for end < len(query) && sqlTagByte(query[end], end == i+1) {
 					end++
 				}
@@ -89,6 +104,24 @@ func (d Dialect) bind(query string) string {
 				out.WriteByte('?')
 				i += 2
 			} else {
+				end := i + 1
+				for end < len(query) && query[end] >= '0' && query[end] <= '9' {
+					end++
+				}
+				if end > i+1 {
+					digits := query[i+1 : end]
+					out.WriteByte('$')
+					// Invalid/overflowed indices remain invalid SQL rather than
+					// accidentally binding an unrelated value to a valid slot.
+					if index, err := strconv.Atoi(digits); err == nil && index > 0 {
+						out.WriteString(strconv.Itoa(index))
+						param = max(param, index)
+					} else {
+						out.WriteString(digits)
+					}
+					i = end
+					continue
+				}
 				param++
 				out.WriteByte('$')
 				out.WriteString(strconv.Itoa(param))

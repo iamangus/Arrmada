@@ -573,7 +573,7 @@ func (r *Repo) applyEdits(ctx context.Context, id int64, set map[string]json.Raw
 		if err != nil {
 			return err
 		}
-		sets = append(sets, "edits_json = ?", "edited_at = MAX(?, edited_at + 1)")
+		sets = append(sets, "edits_json = ?", "edited_at = "+store.ScalarMax(tx, "?", "edited_at + 1"))
 		args = append(args, raw, time.Now().UnixMilli(), id)
 		_, err = tx.ExecContext(ctx, `UPDATE books SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...)
 		return err
@@ -661,7 +661,7 @@ func clearEditsTx(ctx context.Context, tx *store.Transaction, id int64) error {
 			args = append(args, f.arg(under))
 		}
 	}
-	sets = append(sets, "edits_json = '{}'", "edited_at = MAX(?, edited_at + 1)")
+	sets = append(sets, "edits_json = '{}'", "edited_at = "+store.ScalarMax(tx, "?", "edited_at + 1"))
 	args = append(args, time.Now().UnixMilli(), id)
 	_, err = tx.ExecContext(ctx, `UPDATE books SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...)
 	return err

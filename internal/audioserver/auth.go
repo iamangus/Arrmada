@@ -428,7 +428,7 @@ func (a *Accounts) Devices(ctx context.Context, userID int64) ([]Device, error) 
 		q += ` AND t.user_id = ?`
 		args = append(args, userID)
 	}
-	q += ` GROUP BY t.family ORDER BY MAX(t.last_used_at) DESC`
+	q += ` GROUP BY t.family, t.user_id, u.username ORDER BY MAX(t.last_used_at) DESC`
 	rows, err := a.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err

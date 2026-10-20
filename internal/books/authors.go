@@ -534,7 +534,7 @@ func (s *Service) SetCatalogueKey(ctx context.Context, id int64, key string) (in
 			}
 			// Following either row means following the person.
 			if _, err := tx.ExecContext(ctx, `UPDATE authors SET
-				monitored = MAX(monitored, ?), monitor_new = MAX(monitor_new, ?),
+				monitored = `+store.ScalarMax(tx, "monitored", "?")+`, monitor_new = `+store.ScalarMax(tx, "monitor_new", "?")+`,
 				quality_profile = CASE WHEN quality_profile = '' THEN ? ELSE quality_profile END,
 				new_books_found = new_books_found + ?, works_seeded = 0, works_checked_at = ''
 				WHERE id = ?`, b2i(cur.Monitored), b2i(cur.MonitorNew), cur.QualityProfile, cur.NewBooksFound, other); err != nil {
