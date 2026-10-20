@@ -55,9 +55,12 @@ only its own objects. The roles cannot create databases or roles and are not sup
 The tests check per-connection schema isolation, ownership checks, parameter binding,
 prepared queries and transaction rollback while another schema holds unrelated data.
 They also exercise the settings service's persistence, concurrent writes and failed-write
-behavior against PostgreSQL.
-Without the environment variable the real-server tests explicitly skip; CI supplies a
-disposable PostgreSQL 17 service so they must run there. This does not yet establish
+behavior against PostgreSQL; migration locking, checksums, backup-required upgrades,
+transactional failure recovery, schema/column/type/index/foreign-key parity, and paired
+SQLite/PostgreSQL tests for book edits and viewing-group triggers. Concurrent viewing
+inserts are checked against an independent window-function calculation.
+Without the environment variable the real-server tests explicitly skip; CI supplies
+disposable PostgreSQL 16, 17 and 18 services so they must run there. This does not yet establish
 application-level PostgreSQL feature parity or a supported server-version range.
 
 ## Screenshots

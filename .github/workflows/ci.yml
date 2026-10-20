@@ -103,11 +103,15 @@ jobs:
           exit $status
 
   postgres:
-    name: PostgreSQL connection and schema isolation
+    name: PostgreSQL ${{ matrix.postgres }} migrations and repository tests
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [16, 17, 18]
     services:
       postgres:
-        image: postgres:17
+        image: postgres:${{ matrix.postgres }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: arrmada-test-only
@@ -131,7 +135,7 @@ jobs:
       - name: Test PostgreSQL with restricted application roles (race)
         env:
           ARRMADA_TEST_POSTGRES_ADMIN_URL: postgres://postgres:arrmada-test-only@127.0.0.1:5432/arrmada_test?sslmode=disable
-        run: go test -race -count=1 ./internal/store -run 'Test(Postgres|Bind|DatabaseSQLiteBoundary)'
+        run: go test -race -timeout 10m -count=1 ./internal/store -run 'Test(Postgres|Bind|DatabaseSQLiteBoundary)'
 
   audit:
     name: Vulnerability scan (govulncheck, npm audit)
