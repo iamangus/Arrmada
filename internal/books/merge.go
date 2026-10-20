@@ -173,10 +173,18 @@ func (s *Service) mergeTx(ctx context.Context, tx *store.Transaction, keepID, dr
 			// A typed narrator is a hand edit, with the files' tags ('') underneath, so
 			// Reset (or clearing it) hands the moved audiobook back to its own tags.
 			if drop.AudiobookNarrator != "" {
+				edits := `json_set(edits_json, '$.narrator', '')`
+				if store.DialectOf(tx) == store.Postgres {
+					if err := store.SetJSONFields(ctx, tx, "books", "edits_json", keepID, map[string]any{"narrator": ""}); err != nil {
+						return err
+					}
+					edits = "edits_json"
+				}
+				now := time.Now().UnixMilli()
 				if _, err := tx.ExecContext(ctx,
-					`UPDATE books SET audiobook_narrator = ?, edits_json = json_set(edits_json, '$.narrator', ''),
-					        edited_at = MAX(?, edited_at + 1) WHERE id = ?`,
-					drop.AudiobookNarrator, time.Now().UnixMilli(), keepID); err != nil {
+					`UPDATE books SET audiobook_narrator = ?, edits_json = `+edits+`,
+					        edited_at = CASE WHEN ? > edited_at THEN ? ELSE edited_at + 1 END WHERE id = ?`,
+					drop.AudiobookNarrator, now, now, keepID); err != nil {
 					return err
 				}
 			}

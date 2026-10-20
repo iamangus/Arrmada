@@ -102,7 +102,7 @@ func (s *Service) ScanAlbums(ctx context.Context) ([]ScanAlbum, error) {
 
 // ArtistByMBID is the artist with this MBID (ErrNotFound when there is none).
 func (s *Service) ArtistByMBID(ctx context.Context, mbid string) (Artist, error) {
-	a, err := scanArtist(s.repo.db.QueryRowContext(ctx, `SELECT `+artistCols+` FROM artists WHERE mbid = ? COLLATE NOCASE`, strings.TrimSpace(mbid)))
+	a, err := scanArtist(s.repo.db.QueryRowContext(ctx, `SELECT `+artistCols+` FROM artists WHERE `+store.FoldASCII(s.repo.db, "mbid")+` = `+store.FoldASCII(s.repo.db, "?"), strings.TrimSpace(mbid)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Artist{}, ErrNotFound
 	}

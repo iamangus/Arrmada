@@ -1420,7 +1420,7 @@ func (r *Repo) LibraryEpisodeFiles(ctx context.Context) ([]LibraryEpisodeFile, e
 		`SELECT e.id, e.series_id, s.title, s.quality_profile, s.monitored, e.season_number, e.episode_number,
 		        e.monitored, e.file_path, e.size_bytes, e.source_release, e.runtime, e.upgrade_hold,
 		        e.converted_from_release, e.converted_from_size,
-		        COALESCE(CASE WHEN json_valid(s.extra_json) THEN json_extract(s.extra_json, '$.original_language') END, '')
+		        COALESCE(`+store.JSONScalar(r.db, "s.extra_json", "original_language")+`, '')
 		   FROM episodes e JOIN series s ON s.id = e.series_id
 		  WHERE e.has_file = 1
 		  ORDER BY s.title, e.season_number, e.episode_number`)

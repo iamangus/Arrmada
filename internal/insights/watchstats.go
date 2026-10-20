@@ -3,6 +3,8 @@ package insights
 import (
 	"context"
 	"strings"
+
+	"github.com/tristenlammi/arrmada/internal/store"
 )
 
 // "Watched by" on a title's own page: who has played it on Plex or Jellyfin, how often and
@@ -96,7 +98,7 @@ func (r *repo) watchedBy(ctx context.Context, show bool, m titleMatch) ([]UserPl
 	}
 	if show {
 		for _, t := range titles {
-			conds = append(conds, "grandparent_title = ? COLLATE NOCASE")
+			conds = append(conds, store.FoldASCII(r.db, "grandparent_title")+" = "+store.FoldASCII(r.db, "?"))
 			args = append(args, t)
 		}
 		if len(conds) == 0 {
@@ -112,7 +114,7 @@ func (r *repo) watchedBy(ctx context.Context, show bool, m titleMatch) ([]UserPl
 	}
 	if m.year > 0 { // without a year a title alone would sweep in every film of that name
 		for _, t := range titles {
-			conds = append(conds, "(title = ? COLLATE NOCASE AND year = ?)")
+			conds = append(conds, "("+store.FoldASCII(r.db, "title")+" = "+store.FoldASCII(r.db, "?")+" AND year = ?)")
 			args = append(args, t, m.year)
 		}
 	}

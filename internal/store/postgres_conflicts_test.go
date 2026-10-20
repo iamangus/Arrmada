@@ -73,6 +73,9 @@ func TestPostgresBookFreshnessAndDuplicateKeys(t *testing.T) {
 	if id, ok := repo.BookIDForKey(ctx, "former-key"); !ok || id != book.ID {
 		t.Fatalf("alias owner = %d, %v", id, ok)
 	}
+	if keys, err := repo.KeysFor(ctx, book.ID); err != nil || len(keys) != 2 {
+		t.Fatalf("current/former keys = %+v, %v", keys, err)
+	}
 	if due, err := repo.DueForRefresh(ctx, 7, 10); err != nil || len(due) != 1 || due[0] != book.ID {
 		t.Fatalf("freshness before stamp = %v, %v", due, err)
 	}

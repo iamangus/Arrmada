@@ -306,7 +306,7 @@ func (s *Service) dropProfiles() {
 func (s *Service) loadProfiles(ctx context.Context, db store.Pool) (*profileConfig, error) {
 	read := func() ([]Profile, error) {
 		rows, err := db.QueryContext(ctx, `SELECT id, name, items_json, is_default FROM subtitle_profiles
-			ORDER BY is_default DESC, name COLLATE NOCASE`)
+			ORDER BY is_default DESC, `+store.FoldASCII(db, "name"))
 		if err != nil {
 			return nil, err
 		}

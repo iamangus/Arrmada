@@ -64,6 +64,11 @@ repositories and persisted jobs have real PostgreSQL integration coverage too.
 Repository coverage also checks duplicate episode refreshes preserving library state,
 book freshness and alias inserts, acquisition expiry, recent imports, outbox retry
 deduplication, and audiobook rename identity (paired with SQLite).
+Paired JSON tests cover concurrent movie/show metadata backfills, preservation of
+unknown fields and large integers, per-season notification state, folder-path/cache
+rewrites and rollback, plus ASCII-only matching. PostgreSQL JSON mutations read and
+write text documents under `WithTx` rather than forcing them through `jsonb` or a
+lossy struct round-trip; scalar reads use guarded native `json` expressions.
 
 Repository constructors accept `store.Pool`; multi-step writes use
 `store.WithTx` and its dialect-aware `store.Transaction`. Architecture tests

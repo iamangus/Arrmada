@@ -395,8 +395,8 @@ func (r *Repo) SearchAlbums(ctx context.Context, q string, limit int) ([]AlbumHi
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT al.id, al.title, al.year, ar.name, al.cover_url
 		   FROM albums al JOIN artists ar ON ar.id = al.artist_id
-		  WHERE al.title LIKE ? ESCAPE '\' OR ar.name LIKE ? ESCAPE '\'
-		  ORDER BY ar.name COLLATE NOCASE, al.year, al.title COLLATE NOCASE
+		  WHERE `+store.FoldASCII(r.db, "al.title")+` LIKE `+store.FoldASCII(r.db, "?")+` ESCAPE '\' OR `+store.FoldASCII(r.db, "ar.name")+` LIKE `+store.FoldASCII(r.db, "?")+` ESCAPE '\'
+		  ORDER BY `+store.FoldASCII(r.db, "ar.name")+`, al.year, `+store.FoldASCII(r.db, "al.title")+`
 		  LIMIT ?`, pat, pat, limit)
 	if err != nil {
 		return nil, err

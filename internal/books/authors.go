@@ -147,7 +147,7 @@ func (r *Repo) listAuthors(ctx context.Context, ex store.Execer) ([]Author, erro
 	rows, err := ex.QueryContext(ctx, `SELECT `+authorCols+`, `+authorCountsSQL+`
 		FROM authors a LEFT JOIN books b ON b.author_id = a.id
 		GROUP BY a.id HAVING COUNT(b.id) > 0 OR a.monitored = 1
-		ORDER BY a.name COLLATE NOCASE, a.id`)
+		ORDER BY `+store.FoldASCII(ex, "a.name")+`, a.id`)
 	if err != nil {
 		return nil, err
 	}

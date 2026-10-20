@@ -98,8 +98,8 @@ func (p *prober) knownUnder(ctx context.Context, root string) known {
 	clean, from, to := underRange(root)
 	_ = p.db.QueryRowContext(ctx,
 		`SELECT COUNT(*), COALESCE(SUM(duration), 0), COALESCE(SUM(size), 0),
-		        COALESCE(SUM(CASE WHEN json_valid(chapters) THEN json_array_length(chapters) ELSE 0 END), 0),
-		        COALESCE(SUM(meta_version < ?), 0),
+		        COALESCE(SUM(`+store.JSONArrayLength(p.db, "chapters")+`), 0),
+		        COALESCE(SUM(CASE WHEN meta_version < ? THEN 1 ELSE 0 END), 0),
 		        COALESCE((SELECT narrator FROM audio_file_meta
 		                   WHERE narrator != '' AND duration > 0 AND (path = ? OR (path >= ? AND path < ?))
 		                   ORDER BY path LIMIT 1), '')

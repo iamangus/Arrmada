@@ -77,7 +77,7 @@ func (r *Repo) unmatched(ctx context.Context, media string, roots []string) ([]U
 		marks = append(marks, "?")
 	}
 	rows, err := r.q().QueryContext(ctx, `SELECT folder, root, title, year, candidates_json FROM library_unmatched
-		WHERE media = ? AND root IN (`+strings.Join(marks, ",")+`) ORDER BY folder COLLATE NOCASE`, args...)
+		WHERE media = ? AND root IN (`+strings.Join(marks, ",")+`) ORDER BY `+store.FoldASCII(r.q(), "folder"), args...)
 	if err != nil {
 		return nil, err
 	}
