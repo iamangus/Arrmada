@@ -1193,6 +1193,8 @@ export interface AppSettings {
   naming_series_folder: string;
   naming_series_season: string;
   naming_series_episode: string;
+  /** A new show folder keeps the series folder's {year} only when another show shares its title. Off by default. */
+  naming_series_year_when_needed: boolean;
   /** Book naming: folder ("/" between levels), single file, and each file of a multi-file audiobook. */
   naming_audiobook_folder: string;
   naming_audiobook_file: string;
@@ -1608,6 +1610,10 @@ export interface MovieRenameItem {
   proposed: string;
   status: "ok" | "same" | "conflict" | "missing";
   reason?: string;
+  // Everything else that moves with the file (an ok item only): its subtitles and, when it
+  // leaves the movie's own folder, that folder's metadata and artwork. Nothing else moves.
+  extras?: { kind: "subtitle" | "folder"; from: string; to: string }[];
+  kept?: string; // why the old folder's other files stay where they are
 }
 // What applying one item did.
 export interface MovieRenameResult {

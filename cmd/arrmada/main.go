@@ -93,6 +93,8 @@ func (p libPrefs) SeriesNaming() library.SeriesNaming {
 		Folder:       p.s.Get(ctx, "naming_series_folder", library.DefaultSeriesFolder),
 		SeasonFolder: p.s.Get(ctx, "naming_series_season", library.DefaultSeasonFolder),
 		EpisodeFile:  p.s.Get(ctx, "naming_series_episode", library.DefaultEpisodeFile),
+		// Off by default: {year} is then always filled, as it always was.
+		YearWhenNeeded: p.s.GetBool(ctx, settings.KeyNamingSeriesYearWhenNeeded, false),
 	}
 }
 func (p libPrefs) AudiobookNaming() library.BookNaming {
@@ -679,12 +681,21 @@ func main() {
 		return seriesSvc.EpisodeTitleByName(context.Background(), seriesTitle, year, season, episode)
 	})
 	bookImporter.SetSeriesNaming(prefs) // user-configurable series folder / season / episode formats
-	bookImporter.SetBookNaming(prefs)   // user-configurable audiobook and ebook folder / file names
+	// Folders that season template names are season folders, never a show's own folder,
+	// when working out which folder a show lives in (#56).
+	seriesSvc.SetSeasonFolderMatcher(bookImporter.IsSeasonFolderName)
+	bookImporter.SetBookNaming(prefs) // user-configurable audiobook and ebook folder / file names
 	// A new series folder can carry the show's ids ("Show (2022) {tvdb-12345}", the Plex
 	// recommended scheme); existing folders are reused as they are.
 	bookImporter.SetSeriesIDsFunc(func(seriesTitle string, year int) library.SeriesIDs {
 		tmdb, tvdb, imdb, _ := seriesSvc.IDsByName(context.Background(), seriesTitle, year)
 		return library.SeriesIDs{TMDB: tmdb, TVDB: tvdb, IMDB: imdb}
+	})
+	// "Add the year only when it's needed": a new show folder keeps {year} only when another
+	// show shares its title (series.FolderYears). Asked only with that setting on.
+	folderYears := series.NewFolderYears(seriesSvc)
+	bookImporter.SetSeriesYearNeededFunc(func(seriesTitle string, year int, yearless string) bool {
+		return folderYears.Needed(context.Background(), seriesTitle, year, yearless)
 	})
 	coordinator.SetSeries(seriesSvc, bookImporter)
 	// Books share the importer set above; ebooks land in their own category.
@@ -1497,7 +1508,7 @@ func main() {
 	// download on its way in would land in the old folder half-way, so a title with one
 	// in flight waits (fail closed: an unreadable check refuses too).
 	folderMover := &libfolders.Mover{
-		DB: st.DB(), Folders: libFolders, Bin: bins, Scan: media.Request, ShowFolder: series.ShowFolder,
+		DB: st.DB(), Folders: libFolders, Bin: bins, Scan: media.Request, ShowFolders: seriesSvc.ShowFoldersOf, Unclear: seriesSvc.MoveBlocked,
 		Hold: coordinator.HoldSearches, // no search grabs into the old folder half-way
 		// A film's folder moves whole only when it is provably the film's own.
 		OwnFolder: movieSvc.MoveFolderCheck,
