@@ -63,6 +63,16 @@ sh scripts/test-postgres-image.sh arrmada:dev
 A workflow definition or a passing Go build is not proof that a container works;
 record the actual Image run results before calling container verification passed.
 
+The separate **Publish test image** workflow is manual-only. Supply the full
+source commit SHA: its latest CI and Image validation runs must both have passed.
+It builds the plain image natively on amd64 and arm64, repeats the PostgreSQL
+smoke test before pushing each image, then publishes
+`ghcr.io/<repository-owner>/arrmada:test-<full-source-sha>`. It does not change
+`stable`/`latest` tags, create a GitHub release, or deploy anything. The run summary
+and `test-image-reference` artifact record the multi-platform digest to pin in a
+deployment. New GHCR packages may be private by default; check package visibility
+or supply registry credentials before expecting an unauthenticated cluster pull.
+
 ### PostgreSQL integration tests
 
 The PostgreSQL connection boundary is tested against a real server, not a SQL mock.
