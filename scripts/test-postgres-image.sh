@@ -44,7 +44,7 @@ done
 [ "$ready" = true ] || { echo 'Disposable PostgreSQL did not become ready' >&2; exit 1; }
 docker exec -i "$DB" psql -v ON_ERROR_STOP=1 -U postgres -d arrmada_test <<'SQL'
 CREATE ROLE arrmada_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD 'ci-only-password';
-CREATE SCHEMA arrmada AUTHORIZATION arrmada_app;
+GRANT CREATE ON DATABASE arrmada_test TO arrmada_app;
 CREATE SCHEMA arrmada_recovered AUTHORIZATION arrmada_app;
 CREATE SCHEMA unrelated;
 CREATE TABLE unrelated.sentinel (value text NOT NULL);
@@ -80,6 +80,9 @@ start_app() {
 }
 
 start_app arrmada
+# Subsequent starts and maintenance need schema ownership, not database CREATE.
+docker exec "$DB" psql -v ON_ERROR_STOP=1 -U postgres -d arrmada_test \
+  -c 'REVOKE CREATE ON DATABASE arrmada_test FROM arrmada_app'
 docker exec -e PGPASSWORD=ci-only-password "$DB" psql -v ON_ERROR_STOP=1 \
   -h 127.0.0.1 -U arrmada_app -d arrmada_test \
   -c "INSERT INTO arrmada.settings (key,value) VALUES ('image-smoke','preserved')"

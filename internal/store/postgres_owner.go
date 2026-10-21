@@ -14,7 +14,8 @@ import (
 // postgresOwner is the private lifecycle primitive for both the application and
 // offline recovery. Opening owns two schema-scoped locks on a dedicated session:
 // a single-owner lock and an exclusive DDL/recovery lock. Migration/recovery runs
-// before application repositories get a pool. It never creates/drops a schema.
+// before application repositories get a pool. Only runtime startup may create
+// its missing configured schema, after taking these locks; it never drops one.
 //
 // After activate, every application pool session holds the shared DDL/recovery
 // lock, including idle sessions and in-flight queries/transactions. If the owner
@@ -37,6 +38,14 @@ type postgresOwner struct {
 }
 
 func openPostgresOwner(ctx context.Context, opt PostgresOptions) (*postgresOwner, error) {
+	return openPostgresLifecycleOwner(ctx, opt, false)
+}
+
+func openPostgresStartupOwner(ctx context.Context, opt PostgresOptions) (*postgresOwner, error) {
+	return openPostgresLifecycleOwner(ctx, opt, true)
+}
+
+func openPostgresLifecycleOwner(ctx context.Context, opt PostgresOptions, allowMissing bool) (*postgresOwner, error) {
 	controlOpt := opt
 	// The pinned ownership session must not consume the only connection needed
 	// by a pre-migration backup callback. The repository pool still honors the
@@ -44,7 +53,7 @@ func openPostgresOwner(ctx context.Context, opt PostgresOptions) (*postgresOwner
 	if controlOpt.MaxConnections == 1 {
 		controlOpt.MaxConnections = 2
 	}
-	control, err := openPostgresPool(ctx, controlOpt)
+	control, err := openPostgresPoolChecked(ctx, controlOpt, nil, allowMissing)
 	if err != nil {
 		return nil, err
 	}
@@ -62,9 +71,9 @@ func openPostgresOwner(ctx context.Context, opt PostgresOptions) (*postgresOwner
 	}()
 	var ownerKey int64
 	err = conn.QueryRowContext(ctx, `SELECT pg_backend_pid(), backend_start,
-		hashtextextended('arrmada/owner/' || current_database() || '/' || current_schema(), 0),
-		hashtextextended('arrmada/schema/' || current_database() || '/' || current_schema(), 0)
-		FROM pg_catalog.pg_stat_activity WHERE pid = pg_backend_pid()`).Scan(&o.pid, &o.started, &ownerKey, &o.key)
+		hashtextextended('arrmada/owner/' || current_database() || '/' || $1::text, 0),
+		hashtextextended('arrmada/schema/' || current_database() || '/' || $1::text, 0)
+		FROM pg_catalog.pg_stat_activity WHERE pid = pg_backend_pid()`, opt.Schema).Scan(&o.pid, &o.started, &ownerKey, &o.key)
 	if err != nil {
 		return nil, errors.New("could not inspect PostgreSQL lifecycle session")
 	}
@@ -78,6 +87,35 @@ func openPostgresOwner(ctx context.Context, opt PostgresOptions) (*postgresOwner
 	}
 	ok = true
 	return o, nil
+}
+
+// ensureStartupSchema runs only under exclusive lifecycle ownership, after
+// runtime preflight. Existing schemas are never adopted by changing ownership.
+// Maintenance, restore and conversion do not call this method.
+func (o *postgresOwner) ensureStartupSchema(ctx context.Context) error {
+	tx, err := o.conn.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return errors.New("could not begin PostgreSQL schema initialization")
+	}
+	defer tx.Rollback()
+	err = checkPostgresSchema(ctx, tx, o.opt.Schema)
+	if errors.Is(err, sql.ErrNoRows) {
+		if _, err := tx.ExecContext(ctx, `CREATE SCHEMA IF NOT EXISTS `+pgx.Identifier{o.opt.Schema}.Sanitize()+` AUTHORIZATION CURRENT_USER`); err != nil {
+			return errors.New("PostgreSQL schema is missing and could not be created; grant CREATE on this database or pre-provision an application-owned schema")
+		}
+		err = checkPostgresSchema(ctx, tx, o.opt.Schema)
+	}
+	if err != nil {
+		return errors.New("PostgreSQL schema must be owned by the application role, with USAGE and CREATE privileges")
+	}
+	if err := tx.Commit(); err != nil {
+		return errors.New("PostgreSQL schema initialization COMMIT failed; retry startup to inspect its state")
+	}
+	var schema string
+	if err := o.conn.QueryRowContext(ctx, `SELECT current_schema()`).Scan(&schema); err != nil || schema != o.opt.Schema {
+		return errors.New("PostgreSQL configured schema is not the active schema after initialization")
+	}
+	return nil
 }
 
 // activate demotes exclusive DDL ownership to shared protection, retaining the
@@ -112,10 +150,10 @@ func (o *postgresOwner) activate(ctx context.Context) (*Database, error) {
 			SELECT 1 FROM pg_catalog.pg_stat_activity a JOIN pg_catalog.pg_locks l ON l.pid = a.pid
 			WHERE a.pid = $1 AND a.backend_start = $2 AND l.locktype = 'advisory'
 			AND l.granted AND l.mode = 'ExclusiveLock'
-			AND l.classid = ((hashtextextended('arrmada/owner/' || current_database() || '/' || current_schema(), 0) >> 32) & 4294967295)::oid
-			AND l.objid = (hashtextextended('arrmada/owner/' || current_database() || '/' || current_schema(), 0) & 4294967295)::oid
+			AND l.classid = ((hashtextextended('arrmada/owner/' || current_database() || '/' || $3::text, 0) >> 32) & 4294967295)::oid
+			AND l.objid = (hashtextextended('arrmada/owner/' || current_database() || '/' || $3::text, 0) & 4294967295)::oid
 			AND l.objsubid = 1 AND l.database = (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database())
-		)`, o.pid, o.started).Scan(&alive)
+		)`, o.pid, o.started, o.opt.Schema).Scan(&alive)
 		if err != nil || !alive {
 			return errors.New("PostgreSQL lifecycle owner session was lost; restart Arrmada")
 		}

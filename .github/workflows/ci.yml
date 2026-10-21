@@ -8,6 +8,7 @@ name: CI
 # (npm audit).
 # This is the net under all future changes — nothing merges red.
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:

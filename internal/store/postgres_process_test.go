@@ -16,15 +16,41 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/tristenlammi/arrmada/internal/auth"
 	"github.com/tristenlammi/arrmada/internal/store"
 )
 
 func TestPostgresApplicationProcessStartsAndStops(t *testing.T) {
-	_, _, opt, _ := store.PostgresFixture(t)
+	t.Run("preprovisioned", func(t *testing.T) { checkPostgresApplicationProcess(t, false) })
+	t.Run("automatic-schema", func(t *testing.T) { checkPostgresApplicationProcess(t, true) })
+}
+
+func checkPostgresApplicationProcess(t *testing.T, automaticSchema bool) {
+	fixtureCtx, admin, opt, _ := store.PostgresFixture(t)
 	binary := os.Getenv("ARRMADA_TEST_BINARY")
 	if binary == "" {
 		t.Skip("set ARRMADA_TEST_BINARY to exercise the real server process (CI supplies it)")
+	}
+	var database string
+	if automaticSchema {
+		if _, err := admin.Exec(fixtureCtx, `DROP SCHEMA `+pgx.Identifier{opt.Schema}.Sanitize()); err != nil {
+			t.Fatal(err)
+		}
+		if err := admin.QueryRow(fixtureCtx, `SELECT current_database()`).Scan(&database); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin.Exec(fixtureCtx, `GRANT CREATE ON DATABASE `+pgx.Identifier{database}.Sanitize()+` TO `+pgx.Identifier{opt.Schema}.Sanitize()); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if _, err := admin.Exec(cleanup, `REVOKE CREATE ON DATABASE `+pgx.Identifier{database}.Sanitize()+` FROM `+pgx.Identifier{opt.Schema}.Sanitize()); err != nil {
+				t.Error(err)
+			}
+		})
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -111,6 +137,11 @@ func TestPostgresApplicationProcessStartsAndStops(t *testing.T) {
 	}
 	// Exercise the actual maintenance entrypoints against the same live schema,
 	// not just their store/service helpers. No command may open arrmada.db.
+	if automaticSchema {
+		if _, err := admin.Exec(ctx, `REVOKE CREATE ON DATABASE `+pgx.Identifier{database}.Sanitize()+` FROM `+pgx.Identifier{opt.Schema}.Sanitize()); err != nil {
+			t.Fatal(err)
+		}
+	}
 	runCLI := func(input string, args ...string) ([]byte, error) {
 		command := exec.CommandContext(ctx, binary, args...)
 		command.Env = cmd.Env

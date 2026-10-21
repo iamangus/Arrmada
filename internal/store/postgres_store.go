@@ -23,7 +23,7 @@ func openPostgresStore(ctx context.Context, dataDir string, opt Options) (*Store
 	if marker, err := PendingRestore(dataDir); err != nil || marker != nil {
 		return nil, errors.New("resolve the staged SQLite restore explicitly before selecting PostgreSQL; no database was changed")
 	}
-	owner, err := openPostgresOwner(ctx, opt.Postgres)
+	owner, err := openPostgresStartupOwner(ctx, opt.Postgres)
 	if err != nil {
 		return nil, err
 	}
@@ -61,6 +61,9 @@ func openPostgresStore(ctx context.Context, dataDir string, opt Options) (*Store
 		return nil, err
 	}
 	if err := checkPostgresBackupDir(BackupsDir(dataDir)); err != nil {
+		return nil, err
+	}
+	if err := owner.ensureStartupSchema(ctx); err != nil {
 		return nil, err
 	}
 	snapshotted := false
@@ -119,7 +122,7 @@ func checkPostgresBackupDir(dir string) error {
 func OpenPostgresNoMigrate(ctx context.Context, dataDir string, opt PostgresOptions) (*Store, error) {
 	db, err := openPostgresPoolAfterConnect(ctx, opt, func(ctx context.Context, conn *pgx.Conn) error {
 		var locked bool
-		if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock_shared(hashtextextended('arrmada/schema/' || current_database() || '/' || current_schema(), 0))`).Scan(&locked); err != nil {
+		if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock_shared(hashtextextended('arrmada/schema/' || current_database() || '/' || $1::text, 0))`, opt.Schema).Scan(&locked); err != nil {
 			return err
 		}
 		if !locked {

@@ -44,9 +44,10 @@ and manual dispatch. It never logs into a registry or publishes an image. Each
 build loads its image only into that disposable runner and runs
 `scripts/test-postgres-image.sh` against a new PostgreSQL 18 container.
 
-The smoke test provisions a restricted role and owned schemas, starts Arrmada
+The smoke test provisions a restricted role with database `CREATE`, starts Arrmada
 through the image's real entrypoint as UID/GID 1000, checks native clients and
-health, makes a native backup, stops the app, restores into a different empty
+health after automatic schema creation, revokes database `CREATE`, makes a native
+backup, stops the app, restores into a different pre-provisioned empty
 schema, and starts the recovered installation. It verifies the transferred
 marker, an unrelated schema's sentinel, no SQLite database creation, and clean
 shutdown. Bundled companion services are off: this validates the PostgreSQL app

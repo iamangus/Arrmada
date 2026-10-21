@@ -11,16 +11,40 @@ and filesystem data intact until the converted installation has been checked.
 
 ## Provisioning and privileges
 
-Ask the database operator to provision a login and an empty schema in the
-existing database. For example, run by the operator (not Arrmada):
+Ask the database operator to provision a login and access to the existing
+database. **Normal startup creates the configured schema if it is missing**,
+provided the role owns the database or has `CREATE` on that database. It never
+creates a database or changes another schema's ownership. For example, run by
+the operator (not Arrmada):
 
 ```sql
 CREATE ROLE arrmada_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT
   PASSWORD 'a-secret-set-by-the-operator';
-GRANT CONNECT ON DATABASE existing_db TO arrmada_app;
--- Connected to existing_db:
+GRANT CONNECT, CREATE ON DATABASE existing_db TO arrmada_app;
+```
+
+`CREATE ON DATABASE` permits creating schemas inside that database; it is not
+the role-level `CREATEDB` privilege. A dedicated Arrmada database owned by the
+application role already grants the required authority. On startup Arrmada takes
+its configured schema's lifecycle locks, verifies native backup clients and local
+backup publication, then creates and migrates the schema. Concurrent startups
+cannot initialize it twice. A missing schema with insufficient privileges fails
+with instructions to grant database `CREATE` or pre-provision the schema; there
+is no fallback to another schema, `public`, or SQLite.
+
+For **restricted/shared-database deployments**, database `CREATE` is unnecessary:
+grant `CONNECT` only and have the operator pre-provision the schema instead:
+
+```sql
+-- Connected to existing_db as its operator:
 CREATE SCHEMA arrmada AUTHORIZATION arrmada_app;
 ```
+
+An explicit `CREATE` grant can also be revoked after the initial creation;
+subsequent startups only need schema ownership. An application that owns the
+database inherently retains database-owner privileges. Keep the configured
+schema name stable: changing it to a new name can create a new empty installation,
+not move the old installation's data.
 
 Use a lowercase schema identifier, up to 63 characters. `public`,
 `information_schema`, and `pg_*` are refused. The application role must own the
@@ -31,7 +55,8 @@ replication, extension, or other application's object privileges are needed.
 The operator remains responsible for the shared database's role/public-schema
 policies; Arrmada does not change those policies.
 
-The schema must initially be empty. Existing arbitrary tables/functions are not
+An existing schema must be owned by the application role and either empty or an
+initialized compatible Arrmada installation. Arbitrary tables/functions are not
 adopted. A second Arrmada instance targeting the same database/schema is refused.
 Different designated schemas are independent. Runtime connection sessions hold
 schema-scoped locks so recovery/upgrades cannot overlap surviving old sessions
@@ -126,6 +151,9 @@ There is **no in-app PostgreSQL restore or upload/staged replacement**. Use the
 offline command with a build whose PostgreSQL migration history exactly matches
 the archive. Recover an old backup with that matching old build first; upgrade
 after recovery, not while interpreting a different schema version.
+Unlike runtime startup, maintenance commands, offline restore and conversion
+**never create a missing schema**. Recovery destinations must still be explicitly
+pre-provisioned and empty; they are not implicitly initialized by a URL typo.
 
 1. Stop Arrmada and keep the old database schema and filesystem data intact.
 2. Have the operator provision a **new empty schema**, owned by the same

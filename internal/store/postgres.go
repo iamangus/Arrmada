@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/url"
@@ -13,8 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 )
 
-// PostgresOptions describes access to a pre-provisioned schema, not permission
-// to administer its database. URL is secret and must never be logged.
+// PostgresOptions describes access to a dedicated schema, not permission to
+// administer its database. Runtime startup can create a missing schema when the
+// role has database-level CREATE; maintenance/recovery never do so. URL is secret.
 type PostgresOptions struct {
 	URL            string `json:"-"`
 	Schema         string
@@ -51,6 +53,13 @@ func openPostgresPool(ctx context.Context, opt PostgresOptions) (*Database, erro
 }
 
 func openPostgresPoolAfterConnect(ctx context.Context, opt PostgresOptions, after func(context.Context, *pgx.Conn) error) (*Database, error) {
+	return openPostgresPoolChecked(ctx, opt, after, false)
+}
+
+// allowMissing is private to the lifecycle owner's startup path. Connecting
+// never creates anything; startup must acquire the configured schema's locks
+// and pass native-client/filesystem preflight before it may create the schema.
+func openPostgresPoolChecked(ctx context.Context, opt PostgresOptions, after func(context.Context, *pgx.Conn) error, allowMissing bool) (*Database, error) {
 	if err := opt.validate(); err != nil {
 		return nil, err
 	}
@@ -60,7 +69,7 @@ func openPostgresPoolAfterConnect(ctx context.Context, opt PostgresOptions, afte
 		return nil, errors.New("invalid PostgreSQL connection options")
 	}
 	// Explicitly exclude public, $user and implicit pg_temp precedence. Schemas
-	// are provisioned by the operator and ownership is checked below. UTC keeps
+	// are owned by the application role and checked below. UTC keeps
 	// timestamp behavior independent of the shared server's session defaults.
 	cfg.RuntimeParams["search_path"] = pgx.Identifier{opt.Schema}.Sanitize() + ", pg_catalog, pg_temp"
 	cfg.RuntimeParams["timezone"] = "UTC"
@@ -114,16 +123,26 @@ func openPostgresPoolAfterConnect(ctx context.Context, opt PostgresOptions, afte
 		_ = pool.Close()
 		return nil, errors.New("Arrmada requires a UTF8-encoded PostgreSQL database")
 	}
-	var owns, usable bool
-	err = db.QueryRowContext(ctx, `SELECT
-		pg_has_role(current_user, n.nspowner, 'USAGE'),
-		has_schema_privilege(current_user, n.oid, 'USAGE') AND has_schema_privilege(current_user, n.oid, 'CREATE')
-		FROM pg_catalog.pg_namespace AS n WHERE n.nspname = ?`, opt.Schema).Scan(&owns, &usable)
-	if err != nil || !owns || !usable {
+	if err := checkPostgresSchema(ctx, db, opt.Schema); err != nil && !(allowMissing && errors.Is(err, sql.ErrNoRows)) {
 		_ = pool.Close()
-		return nil, errors.New("PostgreSQL schema must already exist and be owned by the application role, with USAGE and CREATE privileges")
+		return nil, errors.New("PostgreSQL schema must exist and be owned by the application role, with USAGE and CREATE privileges")
 	}
 	return db, nil
+}
+
+func checkPostgresSchema(ctx context.Context, q Execer, schema string) error {
+	var owns, usable bool
+	err := q.QueryRowContext(ctx, `SELECT
+		pg_has_role(current_user, n.nspowner, 'USAGE'),
+		has_schema_privilege(current_user, n.oid, 'USAGE') AND has_schema_privilege(current_user, n.oid, 'CREATE')
+		FROM pg_catalog.pg_namespace AS n WHERE n.nspname = $1`, schema).Scan(&owns, &usable)
+	if err != nil {
+		return err
+	}
+	if !owns || !usable {
+		return errors.New("PostgreSQL schema must be owned by the application role, with USAGE and CREATE privileges")
+	}
+	return nil
 }
 
 func supportedPostgresVersion(version int) bool { return version >= 160000 && version < 190000 }
