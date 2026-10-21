@@ -36,6 +36,32 @@ cd web && npm run lint && npm test && npx tsc --noEmit -p . && npm run build && 
 `npm run e2e` runs the Playwright tests against the built UI with every API call answered
 from fixtures in `web/e2e`, so no backend is needed.
 
+### Container verification in GitHub Actions
+
+The **Image** workflow (`.github/workflows/image.yml`) builds plain and all-in-one
+images natively on amd64 and arm64 on pull requests to `main`, pushes to `main`,
+and manual dispatch. It never logs into a registry or publishes an image. Each
+build loads its image only into that disposable runner and runs
+`scripts/test-postgres-image.sh` against a new PostgreSQL 18 container.
+
+The smoke test provisions a restricted role and owned schemas, starts Arrmada
+through the image's real entrypoint as UID/GID 1000, checks native clients and
+health, makes a native backup, stops the app, restores into a different empty
+schema, and starts the recovered installation. It verifies the transferred
+marker, an unrelated schema's sentinel, no SQLite database creation, and clean
+shutdown. Bundled companion services are off: this validates the PostgreSQL app
+path in the all-in-one image, not the companions themselves. All test containers,
+network and data volume are disposable and removed on exit.
+
+With Docker locally, the same check can run against an already-built image:
+
+```sh
+sh scripts/test-postgres-image.sh arrmada:dev
+```
+
+A workflow definition or a passing Go build is not proof that a container works;
+record the actual Image run results before calling container verification passed.
+
 ### PostgreSQL integration tests
 
 The PostgreSQL connection boundary is tested against a real server, not a SQL mock.

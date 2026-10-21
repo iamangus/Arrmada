@@ -64,7 +64,7 @@ jobs:
         run: go vet ./...
       - name: Gofmt (must be clean)
         run: |
-          unformatted="$(gofmt -l $(git ls-files '*.go'))"
+          unformatted="$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
           if [ -n "$unformatted" ]; then
             echo "These files are not gofmt-clean:"; echo "$unformatted"; exit 1
           fi
@@ -167,7 +167,7 @@ jobs:
           docker exec -u postgres "$POSTGRES_CONTAINER" psql -U postgres -d arrmada_test -c "ALTER SYSTEM SET ssl_key_file='/tmp/arrmada-test-server.key'"
           docker exec -u postgres "$POSTGRES_CONTAINER" psql -U postgres -d arrmada_test -c "ALTER SYSTEM SET ssl=on"
           docker exec -u postgres "$POSTGRES_CONTAINER" psql -U postgres -d arrmada_test -c 'SELECT pg_reload_conf()'
-          for attempt in $(seq 1 20); do
+          for _ in $(seq 1 20); do
             if /usr/lib/postgresql/${{ matrix.postgres }}/bin/psql 'postgres://postgres:arrmada-test-only@localhost:5432/arrmada_test?sslmode=verify-full&sslrootcert=/tmp/arrmada-test-server.crt' -c 'SELECT 1'; then
               exit 0
             fi
@@ -223,7 +223,7 @@ jobs:
       # build without leaving the app down; a quoting slip there is not caught anywhere
       # else. shellcheck is preinstalled on the runner image. -s sh: they are POSIX sh.
       - name: shellcheck
-        run: shellcheck -s sh update.sh install.sh docker/entrypoint.sh scripts/changelog-section.sh
+        run: shellcheck -s sh update.sh install.sh docker/entrypoint.sh scripts/changelog-section.sh scripts/test-postgres-image.sh
 
   web:
     name: Web build
